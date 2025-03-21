@@ -33,8 +33,6 @@ A non-clustered index, on the other hand, does not alter the physical order of t
 #### Example:
 Consider the same `Employees` table with a non-clustered index on the `LastName` column. The index will store the `LastName` values along with pointers to the actual rows in the table.
 
-![Non-Clustered Index](https://example.com/images/non-clustered-index.png)
-
 ### Key Differences
 
 | Feature           | Clustered Index                            | Non-Clustered Index                                  |
