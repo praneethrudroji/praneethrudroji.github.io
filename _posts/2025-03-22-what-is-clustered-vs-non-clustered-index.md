@@ -6,6 +6,12 @@ categories: [backend, sql]
 tags: [indexes, databases, sql, performance, optimization, clustered index, non-clustered index]
 ---
 
+{%
+  include embed/audio.html
+  src='assets/media/Clustered vs. Non-Clustered Index_ Understanding Database Indexes.wav'
+  title='Clustered vs Non-Clustered Indexes Audio'
+%}
+
 ## What is Clustered vs Non-Clustered Index?
 
 When working with databases, **indexes** are used to speed up queries. Two common types of indexes are **clustered** and **non-clustered indexes**. Understanding the difference between them is essential for optimizing database performance. Let’s break it down in simple terms.
