@@ -71,9 +71,28 @@ public class Solution {
 }
 ```
 
+### Explanation
+
+In the top-down approach, we use recursion to calculate the number of unique paths to the bottom-right corner of the grid. The idea is to break the problem into smaller subproblems:
+
+1. **Recursive Formula:**
+   - To reach cell `(m, n)`, the robot must come from either the cell above it `(m-1, n)` or the cell to its left `(m, n-1)`.
+   - Therefore, the total number of unique paths to `(m, n)` is the sum of the unique paths to `(m-1, n)` and `(m, n-1)`.
+   - Formula: `UniquePaths(m, n) = UniquePaths(m-1, n) + UniquePaths(m, n-1)`.
+
+2. **Base Cases:**
+   - If `m == 0` or `n == 0`, there are no valid paths because the grid is invalid.
+   - If `m == 1` and `n == 1`, there is exactly one path (the robot is already at the destination).
+
+3. **Recursive Calls:**
+   - The function makes two recursive calls for each cell: one for the cell above and one for the cell to the left.
+
+4. **Result:**
+   - The result is the value returned by `UniquePaths(m, n)`.
+
 ### Example Execution
 
-Let's break down the execution of `UniquePaths(3, 2)` step by step:
+For a 3x2 grid:
 
 1. **Initial Call:**
    - `UniquePaths(3, 2)`
@@ -81,46 +100,30 @@ Let's break down the execution of `UniquePaths(3, 2)` step by step:
 2. **First Level of Recursion:**
    - The robot can move right to `UniquePaths(3, 1)` or down to `UniquePaths(2, 2)`.
 
-3. **Second Level of Recursion (Right Path):**
-   - `UniquePaths(3, 1)`
-     - The robot can move right to `UniquePaths(3, 0)` or down to `UniquePaths(2, 1)`.
+3. **Second Level of Recursion:**
+   - For `UniquePaths(3, 1)`, the robot can move right to `UniquePaths(3, 0)` or down to `UniquePaths(2, 1)`.
+   - For `UniquePaths(2, 2)`, the robot can move right to `UniquePaths(2, 1)` or down to `UniquePaths(1, 2)`.
 
-4. **Third Level of Recursion (Right-Right Path):**
-   - `UniquePaths(3, 0)` returns 0 because m or n is 0.
-   - `UniquePaths(2, 1)`
-     - The robot can move right to `UniquePaths(2, 0)` or down to `UniquePaths(1, 1)`.
-
-5. **Fourth Level of Recursion (Right-Right-Right Path):**
-   - `UniquePaths(2, 0)` returns 0 because m or n is 0.
+4. **Base Cases:**
+   - `UniquePaths(3, 0)` and `UniquePaths(0, 2)` return 0 because the grid is invalid.
    - `UniquePaths(1, 1)` returns 1 because it is a 1x1 grid.
 
-6. **Combining Results (Right Path):**
-   - `UniquePaths(2, 1)` = 0 (from `UniquePaths(2, 0)`) + 1 (from `UniquePaths(1, 1)`) = 1.
-   - `UniquePaths(3, 1)` = 0 (from `UniquePaths(3, 0)`) + 1 (from `UniquePaths(2, 1)`) = 1.
+5. **Combining Results:**
+   - `UniquePaths(2, 1) = UniquePaths(1, 1) + UniquePaths(2, 0) = 1 + 0 = 1`.
+   - `UniquePaths(3, 1) = UniquePaths(2, 1) + UniquePaths(3, 0) = 1 + 0 = 1`.
+   - `UniquePaths(1, 2) = UniquePaths(1, 1) + UniquePaths(0, 2) = 1 + 0 = 1`.
+   - `UniquePaths(2, 2) = UniquePaths(2, 1) + UniquePaths(1, 2) = 1 + 1 = 2`.
+   - `UniquePaths(3, 2) = UniquePaths(3, 1) + UniquePaths(2, 2) = 1 + 2 = 3`.
 
-7. **Second Level of Recursion (Down Path):**
-   - `UniquePaths(2, 2)`
-     - The robot can move right to `UniquePaths(2, 1)` or down to `UniquePaths(1, 2)`.
+### Time Complexity Without Memoization
 
-8. **Third Level of Recursion (Down-Right Path):**
-   - `UniquePaths(2, 1)` has already been calculated as 1.
-   - `UniquePaths(1, 2)`
-     - The robot can move right to `UniquePaths(1, 1)` or down to `UniquePaths(0, 2)`.
+- **Time Complexity:** `O(2^(m + n))`  
+  Without memoization, the recursive solution explores all possible paths, leading to an exponential number of recursive calls. Each call splits into two further calls (right and down), resulting in `2^(m + n)` calls in the worst case.
 
-9. **Fourth Level of Recursion (Down-Right-Right Path):**
-   - `UniquePaths(1, 1)` returns 1 because it is a 1x1 grid.
-   - `UniquePaths(0, 2)` returns 0 because m or n is 0.
-
-10. **Combining Results (Down Path):**
-    - `UniquePaths(1, 2)` = 1 (from `UniquePaths(1, 1)`) + 0 (from `UniquePaths(0, 2)`) = 1.
-    - `UniquePaths(2, 2)` = 1 (from `UniquePaths(2, 1)`) + 1 (from `UniquePaths(1, 2)`) = 2.
-
-11. **Combining Final Results:**
-    - `UniquePaths(3, 2)` = 1 (from `UniquePaths(3, 1)`) + 2 (from `UniquePaths(2, 2)`) = 3.
+- **Space Complexity:** `O(m + n)`  
+  The recursion stack can grow up to `m + n` levels deep, corresponding to the maximum depth of the recursion tree.
 
 ## Adding Memoization
-
-To optimize the recursive solution, we can use memoization to store the results of subproblems and avoid redundant calculations.
 
 ```csharp
 public class Solution {
@@ -144,6 +147,92 @@ public class Solution {
 }
 ```
 
-## Stay Tuned
+## Bottom-Up (Iterative) Solution
 
-Stay tuned for the bottom-up iterative approach to solving the unique paths problem!
+```csharp
+public class Solution {
+    public int UniquePaths(int m, int n) {
+        int[,] dp = new int[m, n];
+
+        // Initialize the first row and first column to 1
+        for (int i = 0; i < m; i++) dp[i, 0] = 1;
+        for (int j = 0; j < n; j++) dp[0, j] = 1;
+
+        // Fill the DP table
+        for (int i = 1; i < m; i++) {
+            for (int j = 1; j < n; j++) {
+                dp[i, j] = dp[i - 1, j] + dp[i, j - 1];
+            }
+        }
+
+        return dp[m - 1, n - 1];
+    }
+}
+```
+
+### Explanation
+
+In the bottom-up (iterative) approach, we use a 2D array `dp` to store the number of unique paths to each cell in the grid. The value of `dp[i, j]` represents the number of unique paths to reach cell `(i, j)`.
+
+1. **Initialization:**
+   - The first row (`dp[0, j]`) and the first column (`dp[i, 0]`) are initialized to 1 because there is only one way to reach any cell in the first row (by moving right) or the first column (by moving down).
+
+2. **Filling the DP Table:**
+   - For each cell `(i, j)`, the number of unique paths is the sum of the unique paths from the cell above it (`dp[i - 1, j]`) and the cell to its left (`dp[i, j - 1]`).
+   - Formula: `dp[i, j] = dp[i - 1, j] + dp[i, j - 1]`.
+
+3. **Result:**
+   - The value at the bottom-right corner of the grid (`dp[m - 1, n - 1]`) gives the total number of unique paths.
+
+### Example Execution
+
+For a 3x2 grid:
+
+1. **Initialization:**
+   ```
+   dp = [
+     [1, 1],
+     [1, 0],
+     [1, 0]
+   ]
+   ```
+
+2. **Filling the DP Table:**
+   - For cell `(1, 1)`: `dp[1, 1] = dp[0, 1] + dp[1, 0] = 1 + 1 = 2`.
+   - For cell `(2, 1)`: `dp[2, 1] = dp[1, 1] + dp[2, 0] = 2 + 1 = 3`.
+
+   Final DP table:
+   ```
+   dp = [
+     [1, 1],
+     [1, 2],
+     [1, 3]
+   ]
+   ```
+
+3. **Result:**
+   - The value at `dp[2, 1]` is `3`, which is the total number of unique paths.
+
+### Time Complexity
+
+#### Top-Down (Recursive with Memoization):
+- **Time Complexity:** `O(m * n)` because each subproblem is solved only once and stored in the memoization table.
+- **Space Complexity:** `O(m * n)` for the memoization table, plus `O(m + n)` for the recursion stack.
+
+#### Top-Down (Recursive without Memoization):
+- **Time Complexity:** `O(2^(m + n))` due to the exponential growth of recursive calls.
+- **Space Complexity:** `O(m + n)` for the recursion stack.
+
+#### Bottom-Up (Iterative):
+- **Time Complexity:** `O(m * n)` because we iterate through all cells in the grid.
+- **Space Complexity:** `O(m * n)` for the DP table.
+
+### Comparison
+
+| Approach                       | Time Complexity | Space Complexity | Notes                                                                |
+| ------------------------------ | --------------- | ---------------- | -------------------------------------------------------------------- |
+| Top-Down (Without Memoization) | `O(2^(m + n))`  | `O(m + n)`       | Exponential growth due to redundant calculations.                    |
+| Top-Down (With Memoization)    | `O(m * n)`      | `O(m * n)`       | Requires recursion and memoization. May have additional stack usage. |
+| Bottom-Up                      | `O(m * n)`      | `O(m * n)`       | Iterative approach with no recursion overhead.                       |
+
+In summary, the top-down approach without memoization is highly inefficient compared to the other two approaches. Memoization or the bottom-up approach is recommended for optimal performance.
