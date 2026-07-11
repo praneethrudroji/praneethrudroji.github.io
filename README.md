@@ -8,8 +8,11 @@ Welcome to my personal blog! This site is built using the [**Chirpy**][chirpy] J
 
 Check out my latest blog posts:
 
-- [What is Clustered VS Non-Clustered Index](https://praneethrudroji.github.io/2025/03/22/what-is-clustered-vs-non-clustered-index.html)
-- [More posts coming soon...]
+- [Async/Await Pitfalls in C# - Deadlocks, ConfigureAwait, and Fire-and-Forget](https://praneethrudroji.github.io/posts/async-await-pitfalls-in-csharp/)
+- [Change Data Capture in SQL Server - How It Works and When to Use It](https://praneethrudroji.github.io/posts/change-data-capture-in-sql-server/)
+- [Reading SQL Execution Plans - A Practical Guide to Query Optimization](https://praneethrudroji.github.io/posts/reading-sql-execution-plans/)
+- [What is Clustered vs Non-Clustered Index?](https://praneethrudroji.github.io/posts/what-is-clustered-vs-non-clustered-index/)
+- [Dynamic Programming - Unique Paths](https://praneethrudroji.github.io/posts/dynamic-programming-unique-paths/)
 
 ## About Me
 

@@ -19,7 +19,9 @@ title: Praneeth Rudroji # the main title
 tagline: Senior Software Engineer @ Inovalon # it will display as the subtitle
 
 description: >- # used by seo meta and the atom feed
-  A minimal, responsive and feature-rich Jekyll theme for technical writing.
+  Notes on databases, SQL performance, and backend engineering from Praneeth
+  Rudroji, a Senior Software Engineer working with .NET, C#, SQL, and cloud
+  platforms.
 
 # Fill in the protocol & hostname for your site.
 # E.g. 'https://username.github.io', note that it does not end with a '/'.
@@ -45,6 +47,9 @@ social:
     - https://www.linkedin.com/in/praneethrudroji
 
 # Site Verification Settings
+# These need a verification code from each provider - I cannot generate these for you.
+# Google: https://search.google.com/search-console -> Add property -> HTML tag method -> paste the content= value only
+# Bing: https://www.bing.com/webmasters -> Add site -> Meta tag method -> paste the content= value only
 webmaster_verifications:
   google: # fill in your Google verification code
   bing: # fill in your Bing verification code
@@ -74,8 +79,11 @@ analytics:
     id: # fill in your Fathom Site ID
 
 # Page views settings
+# Requires a free account at https://www.goatcounter.com (sign up -> "Create a code" ->
+# use that code, e.g. yoursite, below) - I can't sign up on your behalf.
+# Once you have the code, also set analytics.goatcounter.id to the same value above.
 pageviews:
-  provider: # now only supports 'goatcounter'
+  provider: # set to 'goatcounter' once you have an id below
 
 # Prefer color scheme setting.
 #
@@ -102,14 +110,23 @@ avatar: /assets/img/avatar.jpeg
 
 # The URL of the site-wide social preview image used in SEO `og:image` meta tag.
 # It can be overridden by a customized `page.image` in front matter.
-social_preview_image: # string, local or CORS resources
+social_preview_image: /assets/img/social-preview.png
 
 # boolean type, the global switch for TOC in posts.
 toc: true
 
 comments:
   # Global switch for the post-comment system. Keeping it empty means disabled.
-  provider: # [disqus | utterances | giscus]
+  # giscus needs two manual, one-time steps before this works (I can't do these for you,
+  # they require repo-admin access and a GitHub app install):
+  #   1. Settings -> General -> Features -> check "Discussions" on this repo
+  #   2. Install the giscus app on this repo: https://github.com/apps/giscus
+  #   3. Go to https://giscus.app, enter this repo, pick a discussion category
+  #      (e.g. create one called "Comments"), and copy the generated category_id below.
+  #      repo_id is already filled in - it's this repo's GraphQL node id.
+  #   4. Only then, set provider: giscus below (it's left blank/disabled until category_id
+  #      is filled in, so the site doesn't show a broken comment widget in the meantime).
+  provider: # [disqus | utterances | giscus] - set to giscus after finishing steps 1-4 above
   # The provider options are as follows:
   disqus:
     shortname: # fill with the Disqus shortname. › https://help.disqus.com/en/articles/1717111-what-s-a-shortname
@@ -119,15 +136,15 @@ comments:
     issue_term: # < url | pathname | title | ...>
   # Giscus options › https://giscus.app
   giscus:
-    repo: # <gh-username>/<repo>
-    repo_id:
-    category:
-    category_id:
-    mapping: # optional, default to 'pathname'
-    strict: # optional, default to '0'
-    input_position: # optional, default to 'bottom'
-    lang: # optional, default to the value of `site.lang`
-    reactions_enabled: # optional, default to the value of `1`
+    repo: praneethrudroji/praneethrudroji.github.io
+    repo_id: R_kgDOOLVqHg
+    category: Comments # create this category in step 3 above
+    category_id: # fill in after completing steps 1-3 above
+    mapping: pathname
+    strict: "0"
+    input_position: bottom
+    lang: en
+    reactions_enabled: "1"
 
 # Self-hosted static assets, optional › https://github.com/cotes2020/chirpy-static-assets
 assets:
