@@ -6,8 +6,12 @@ order: 5
 
 <div class="video-library">
 {% for group in site.data.videos %}
-  <section class="video-category">
-    <h2>{{ group.category }}</h2>
+  <section class="video-category{% if group.pinned %} pinned{% endif %}">
+    <h2>
+      {%- if group.pinned %}<i class="fas fa-thumbtack yt-pin" aria-hidden="true"></i> {% endif -%}
+      {{ group.category }}
+      {%- if group.channel_url %} <a class="yt-channel-link" href="{{ group.channel_url }}" target="_blank" rel="noopener">Visit channel <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></a>{% endif -%}
+    </h2>
     <div class="video-grid">
       {% for video in group.videos %}
         {% assign url = video.url %}
@@ -22,13 +26,13 @@ order: 5
           {% assign vid = url | split: '/embed/' | last | split: '?' | first %}
         {% endif %}
         <div class="yt-card">
-          <div class="yt-thumb" data-yt-id="{{ vid }}" role="button" tabindex="0" aria-label="Play {{ video.title | default: 'video' }}">
-            <img src="https://img.youtube.com/vi/{{ vid }}/hqdefault.jpg" loading="lazy" alt="{{ video.title | default: 'YouTube video thumbnail' }}">
+          <div class="yt-thumb" data-yt-id="{{ vid }}" role="button" tabindex="0" aria-label="Play {{ video.title | default: 'video' | escape }}">
+            <img src="https://img.youtube.com/vi/{{ vid }}/hqdefault.jpg" loading="lazy" alt="{{ video.title | default: 'YouTube video thumbnail' | escape }}">
             <span class="yt-play"><i class="fas fa-play"></i></span>
           </div>
           {% if video.title %}
           <div class="yt-body">
-            <p class="yt-title">{{ video.title }}</p>
+            <p class="yt-title">{{ video.title | escape }}</p>
           </div>
           {% endif %}
         </div>
@@ -42,6 +46,21 @@ order: 5
 .video-library { margin-top: 0.5rem; }
 
 .video-category { margin-bottom: 2.5rem; }
+.yt-pin {
+  font-size: 0.85em;
+  color: #e62117;
+  transform: rotate(35deg);
+  display: inline-block;
+  margin-right: 0.15rem;
+}
+.yt-channel-link {
+  float: right;
+  font-size: 0.72em;
+  font-weight: 600;
+  align-self: center;
+  border-bottom: none !important;
+}
+.yt-channel-link i { font-size: 0.85em; }
 .video-category > h2 {
   margin: 0 0 1.1rem;
   padding-bottom: 0.4rem;

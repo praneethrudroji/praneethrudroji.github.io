@@ -6,16 +6,59 @@
 #   https://www.youtube.com/shorts/VIDEO_ID
 # `title` is optional but recommended.
 #
-# To add a new category, just add a new "- category: Name" block below.
+# To add a new category, add a new "- category: Name" block below.
+# Add `pinned: true` to a category to show a pin icon and keep it at the top
+# (categories render in the order they appear in this file).
+# Add `channel_url` to a category to show a "Visit channel" link next to it.
+#
 # Only whoever can push to this repo can edit this file - the page itself
 # is read-only for visitors.
 
-- category: AI
+- category: CodeSnip - My Channel
+  pinned: true
+  channel_url: https://www.youtube.com/@thecodesnip
   videos:
+    - url: https://www.youtube.com/watch?v=zXl80nKqneg
+      title: Abstract Classes in C# | Explained for Interviews
+    - url: https://www.youtube.com/watch?v=Rrrk-fcxHaY
+      title: 10-Minute Automation - Send Personalised Emails from Google Sheets (n8n Tutorial)
+    - url: https://www.youtube.com/watch?v=OaLEMyJeVX4
+      title: Welcome to CodeSnip
+
+- category: AI & LLMs
+  videos:
+    - url: https://www.youtube.com/watch?v=zjkBMFhNj_g
+      title: Intro to Large Language Models (Andrej Karpathy)
+    - url: https://www.youtube.com/watch?v=7xTGNNLPyMI
+      title: Deep Dive into LLMs like ChatGPT (Andrej Karpathy)
+    - url: https://www.youtube.com/watch?v=kCc8FmEb1nY
+      title: Let's build GPT from scratch, in code (Andrej Karpathy)
     - url: https://www.youtube.com/watch?v=aircAruvnKk
       title: But what is a neural network? (3Blue1Brown)
+    - url: https://www.youtube.com/watch?v=wjZofJX0v4M
+      title: Transformers, the tech behind LLMs (3Blue1Brown)
 
-# - category: .NET
-#   videos:
-#     - url: https://www.youtube.com/watch?v=VIDEO_ID
-#       title: Some talk title
+- category: .NET & C#
+  videos:
+    - url: https://www.youtube.com/watch?v=R-z2Hv-7nxk
+      title: Deep .NET - Writing async/await from scratch in C# (Stephen Toub & Scott Hanselman)
+    - url: https://www.youtube.com/watch?v=5KdICNWOfEQ
+      title: Deep .NET - A Complete Guide to Span<T> (Stephen Toub & Scott Hanselman)
+    - url: https://www.youtube.com/watch?v=2moh18sh5p4
+      title: C# Async/Await - Make your app more responsive (Tim Corey)
+
+- category: SQL Server
+  videos:
+    - url: https://www.youtube.com/watch?v=RD-REgyVjwk
+      title: How to Think Like the SQL Server Engine (Brent Ozar)
+    - url: https://www.youtube.com/watch?v=HXV3zeQKqGY
+      title: SQL Tutorial - Full Database Course for Beginners (freeCodeCamp)
+
+- category: System Design
+  videos:
+    - url: https://www.youtube.com/watch?v=-W9F__D3oY4
+      title: Scalability - Harvard CS75 (David Malan)
+    - url: https://www.youtube.com/watch?v=iJLL-KPqBpM
+      title: System Design Interview - Distributed Message Queue
+    - url: https://www.youtube.com/watch?v=lX4CrbXMsNQ
+      title: 10+ Key Memory & Storage Systems (ByteByteGo)
