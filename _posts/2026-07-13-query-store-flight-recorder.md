@@ -1,5 +1,6 @@
 ---
 title: Query Store - The Flight Recorder That Answers "What Changed?"
+description: Query Store records plans, runtime stats, and waits over time, so 'the app got slow yesterday' becomes a query instead of archaeology - plus when plan forcing is the right call.
 date: 2026-07-13 09:00 +0530
 categories: [backend, sql]
 tags: [sql, sql server, query store, performance, execution plans, plan forcing]
@@ -9,7 +10,7 @@ tags: [sql, sql server, query store, performance, execution plans, plan forcing]
 
 "The app got slow yesterday around 3 PM. Nothing was deployed. What happened?"
 
-Before Query Store, honestly answering that required luck: the plan cache only shows *current* plans (and forgets everything on restart or memory pressure), so the plan that was running fine Tuesday is simply gone by the time you investigate Thursday. Query Store fixes this by persisting query texts, plans, and runtime statistics **into the user database itself** - a flight recorder that survives restarts, failovers, and plan cache flushes. If the execution plans post taught you to read a plan and the parameter sniffing post taught you why plans go bad, Query Store is how you catch it happening in your actual production history.
+Before Query Store, honestly answering that required luck: the plan cache only shows *current* plans (and forgets everything on restart or memory pressure), so the plan that was running fine Tuesday is simply gone by the time you investigate Thursday. Query Store fixes this by persisting query texts, plans, and runtime statistics **into the user database itself** - a flight recorder that survives restarts, failovers, and plan cache flushes. If the [execution plans post](/posts/reading-sql-execution-plans/) taught you to read a plan, Query Store is how you catch a plan going bad in your actual production history.
 
 ## Turning it on properly
 
@@ -58,11 +59,11 @@ In practice you'll live in the SSMS reports under the database's **Query Store**
 
 ## Diagnosing the classic incident: plan regression
 
-The plan-flip story almost always reads the same way: statistics update or plan-cache eviction triggers a recompile; the recompile happens to sniff an unrepresentative parameter (parameter sniffing post); the new plan is terrible for the common case. Query Store shows both plans side by side with their per-plan stats - the old plan averaging 40ms across 2M executions, the new one averaging 9 seconds across 50k. You can open each plan's XML right from the store and diff the shapes (seek+loop vs scan+hash, the usual suspects).
+The plan-flip story almost always reads the same way: statistics update or plan-cache eviction triggers a recompile; the recompile happens to sniff an unrepresentative parameter; the new plan is terrible for the common case. Query Store shows both plans side by side with their per-plan stats - the old plan averaging 40ms across 2M executions, the new one averaging 9 seconds across 50k. You can open each plan's XML right from the store and diff the shapes (seek+loop vs scan+hash, the usual suspects).
 
 At that point you have two roads:
 
-**Road 1 - fix the cause**: everything from the sniffing post applies (RECOMPILE, OPTIMIZE FOR, index changes, rewriting the predicate). Correct, durable, requires a code/index change and a deploy.
+**Road 1 - fix the cause**: the standard parameter-sniffing toolkit applies (RECOMPILE, OPTIMIZE FOR, index changes, rewriting the predicate). Correct, durable, requires a code/index change and a deploy.
 
 **Road 2 - force the good plan, right now:**
 
@@ -78,7 +79,7 @@ SQL Server 2022's **CE feedback / plan correction** features automate a version 
 
 ## The features people miss
 
-**Wait statistics per query** (2017+): `sys.query_store_wait_stats` categorizes what each plan *waited on* (CPU, lock, latch, network, memory) per interval. This closes the classic gap - server-wide wait stats tell you the instance waited on locks; Query Store tells you *which query* did. A query whose duration regressed but whose CPU didn't, with lock waits climbing, points at blocking (locking post), not at the plan.
+**Wait statistics per query** (2017+): `sys.query_store_wait_stats` categorizes what each plan *waited on* (CPU, lock, latch, network, memory) per interval. This closes the classic gap - server-wide wait stats tell you the instance waited on locks; Query Store tells you *which query* did. A query whose duration regressed but whose CPU didn't, with lock waits climbing, points at blocking, not at the plan.
 
 **Query Store hints** (2022+): apply a hint *without touching code* - the vendor-app scenario:
 
@@ -89,7 +90,7 @@ EXEC sys.sp_query_store_set_hints @query_id = 4123,
 
 This is how you apply the parameter-sniffing fixes to a query you can't edit - cleaner and more targeted than plan guides ever were.
 
-**A/B measurement for your own tuning**: because stats are bucketed by interval, "deploy index Tuesday 14:00, compare the query's avg reads before/after" is a simple query rather than a guess. Query Store turns index tuning (covering-indexes post) from faith into measurement.
+**A/B measurement for your own tuning**: because stats are bucketed by interval, "deploy index Tuesday 14:00, compare the query's avg reads before/after" is a simple query rather than a guess. Query Store turns index tuning from faith into measurement.
 
 **Compatibility-level upgrades**: the canonical safe upgrade dance - turn on Query Store, run at the old compat level for a couple of representative weeks, flip compat level, run the Regressed Queries report, force old plans for the few regressions while you fix them properly. This is the officially recommended path for major version/CE upgrades and it works.
 

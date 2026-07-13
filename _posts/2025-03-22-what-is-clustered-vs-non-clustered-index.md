@@ -1,6 +1,7 @@
 ---
 layout: post
 title: What is Clustered vs Non-Clustered Index?
+description: Clustered vs non-clustered indexes in SQL Server explained - how each stores data, when key lookups hurt, and how INCLUDE columns make an index covering.
 date: 2025-03-22 00:38 +0530
 categories: [backend, sql]
 tags: [indexes, databases, sql, performance, optimization, clustered index, non-clustered index]

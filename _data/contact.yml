@@ -23,6 +23,10 @@
   icon: "fab fa-linkedin" # icons powered by <https://fontawesome.com/>
   noblank: true
   url: "https://www.linkedin.com/in/praneethrudroji" # Fill with your Linkedin homepage
+
+- type: youtube
+  icon: "fab fa-youtube"
+  url: "https://www.youtube.com/@thecodesnip" # CodeSnip channel
 #
 # - type: stack-overflow
 #   icon: 'fab fa-stack-overflow'

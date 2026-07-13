@@ -6,7 +6,9 @@ order: 4
 
 Hello and welcome to my blog!
 
-I am a Senior Software Development Engineer currently working at Inovalon. With over 5 years of extensive experience in .NET, C#, React, SQL, Azure, and AWS, I have honed my skills in developing robust and scalable software solutions. My journey in the tech industry has been both challenging and rewarding, and I am excited to share my learnings and insights with you through this blog.
+I am **Praneeth Rudroji**, a Senior Software Development Engineer currently working at Inovalon. With over 5 years of extensive experience in .NET, C#, React, SQL, Azure, and AWS, I have honed my skills in developing robust and scalable software solutions. My journey in the tech industry has been both challenging and rewarding, and I am excited to share my learnings and insights with you through this blog.
+
+I also run **[CodeSnip](https://www.youtube.com/@thecodesnip)**, a YouTube channel with short, practical videos on C#, .NET, and automation. The [Videos](/videos/) page collects those alongside talks I recommend.
 
 ## Professional Background
 

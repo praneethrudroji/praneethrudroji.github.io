@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Change Data Capture in SQL Server - How It Works and When to Use It
+description: How SQL Server Change Data Capture works under the hood - the log reader, capture tables, and LSNs - and when to choose it over triggers or polling.
 date: 2026-07-11 10:00 +0530
 categories: [backend, sql]
 tags: [cdc, sql server, data engineering, etl, change data capture]

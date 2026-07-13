@@ -1,5 +1,6 @@
 ---
 title: Window Functions in SQL Server - From ROW_NUMBER to Frames Without the Confusion
+description: ROW_NUMBER dedup, running totals, LAG/LEAD, gaps and islands, and the ROWS vs RANGE trap - window functions in SQL Server without the confusion.
 date: 2026-07-13 11:00 +0530
 categories: [backend, sql]
 tags: [sql, sql server, window functions, tsql, performance, queries]
@@ -39,7 +40,7 @@ SELECT * FROM Ranked WHERE rn = 1;
 
 Latest reading per device, latest status per order, current address per customer - all this one shape. Notes that separate the pros:
 
-- **Deterministic tiebreaker** in the ORDER BY (`ReadingId DESC`), same discipline as the pagination post - without it, ties pick arbitrarily and results differ between runs.
+- **Deterministic tiebreaker** in the ORDER BY (`ReadingId DESC`), same determinism discipline as keyset pagination - without it, ties pick arbitrarily and results differ between runs.
 - The window function must live in a CTE/derived table because **you can't put it in WHERE** (logical processing order: window functions evaluate with SELECT, after WHERE).
 - The same pattern with `WHERE rn > 1` feeding a DELETE is the standard **duplicate-row cleanup** - dedup a table in one statement, choosing exactly which copy survives.
 
@@ -115,7 +116,7 @@ Flag where runs start (LAG), running-sum the flags into island numbers (windowed
 
 ## Performance: windows want order
 
-The plan cost of window functions is dominated by one thing: obtaining rows **sorted by `PARTITION BY` columns, then `ORDER BY` columns**. If no index provides that order, you get a Sort operator - and large sorts spill (statistics post: watch the warnings). The supporting-index recipe is the **POC pattern** - key on **P**artition then **O**rder columns, INCLUDE the **C**overed payload:
+The plan cost of window functions is dominated by one thing: obtaining rows **sorted by `PARTITION BY` columns, then `ORDER BY` columns**. If no index provides that order, you get a Sort operator - and large sorts spill to tempdb (watch for spill warnings in the plan). The supporting-index recipe is the **POC pattern** - key on **P**artition then **O**rder columns, INCLUDE the **C**overed payload:
 
 ```sql
 -- For: ROW_NUMBER() OVER (PARTITION BY DeviceId ORDER BY ReadingAt DESC) ... SELECT Status, Value
@@ -123,7 +124,7 @@ CREATE INDEX IX_Readings_POC ON dbo.DeviceReadings (DeviceId, ReadingAt DESC)
     INCLUDE (Status, Value);
 ```
 
-With the POC index the plan streams: seek/scan in order → Segment → windowed compute, no Sort at all - the covering-indexes post's economics applied to windows. Further notes: multiple window functions **sharing the same PARTITION BY/ORDER BY** are computed together (one sort), while each *distinct* window spec can add its own sort - align your windows when you can. Batch mode (columnstore post) executes window aggregates dramatically faster on analytic volumes - window-heavy reporting is one of the best arguments for a columnstore on the reporting copy.
+With the POC index the plan streams: seek/scan in order → Segment → windowed compute, no Sort at all - covering-index economics applied to windows. Further notes: multiple window functions **sharing the same PARTITION BY/ORDER BY** are computed together (one sort), while each *distinct* window spec can add its own sort - align your windows when you can. Batch mode on columnstore executes window aggregates dramatically faster on analytic volumes - window-heavy reporting is one of the best arguments for a columnstore on the reporting copy.
 
 For top-N-per-group specifically, at high row counts also consider `CROSS APPLY (SELECT TOP 1 ... ORDER BY ...)` - with the right index it can beat ROW_NUMBER by seeking per group instead of numbering everything. Test both; the winner depends on group count vs rows per group.
 

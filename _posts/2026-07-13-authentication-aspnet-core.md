@@ -1,13 +1,15 @@
 ---
 title: Authentication in ASP.NET Core - Cookies, JWTs, and OIDC Without the Hand-Waving
+description: "Cookies, JWTs, and OIDC in ASP.NET Core - what each validation flag stops, why audience validation stays on, and the BFF rule: browsers get cookies, machines get bearers."
 date: 2026-07-13 13:00 +0530
 categories: [backend, dotnet]
 tags: [.net, c#, aspnet core, authentication, jwt, oidc, security, backend]
+mermaid: true
 ---
 
 ## Most auth confusion is three concepts wearing one trench coat
 
-Developers say "auth" and mean three separable things: **authentication** (establishing who the caller is), **authorization** (deciding what they may do), and **session management** (how identity persists across requests). ASP.NET Core separates them cleanly - `UseAuthentication` populates `HttpContext.User`; `UseAuthorization` evaluates policies against it (middleware post: in exactly that order) - and most real-world misconfigurations come from blurring which of the three a given mechanism handles. This post builds the mental model: cookies for browser apps, JWTs for APIs, OIDC for delegating the hard parts, and the specific settings that separate secure from decorative.
+Developers say "auth" and mean three separable things: **authentication** (establishing who the caller is), **authorization** (deciding what they may do), and **session management** (how identity persists across requests). ASP.NET Core separates them cleanly - `UseAuthentication` populates `HttpContext.User`; `UseAuthorization` evaluates policies against it (in exactly that order in the middleware pipeline) - and most real-world misconfigurations come from blurring which of the three a given mechanism handles. This post builds the mental model: cookies for browser apps, JWTs for APIs, OIDC for delegating the hard parts, and the specific settings that separate secure from decorative.
 
 ## The core abstraction: schemes produce ClaimsPrincipals
 
@@ -67,12 +69,27 @@ Map each validation to the attack it stops, because each one gets disabled by so
 Structural decisions that follow from "signed, not revocable":
 
 - **Access tokens short (5-15 minutes)**; longevity comes from **refresh tokens**, which live *only* on the auth server, are stored server-side, and *are* revocable - and should be **rotated on every use** with reuse detection (a replayed old refresh token signals theft; revoke the whole family). This split is the revocation story: stolen access tokens expire quickly; stolen refresh tokens die on first reuse.
-- **Claims are a snapshot at issuance.** Roles changed mid-token-lifetime don't apply until refresh - authorize against claims accepting that latency, or check the store for the sensitive operations (authorization patterns are roadmap topic #44).
+- **Claims are a snapshot at issuance.** Roles changed mid-token-lifetime don't apply until refresh - authorize against claims accepting that latency, or check the store for the sensitive operations.
 - **SPA token storage**: localStorage is readable by any XSS payload; the defensible pattern for browser apps is the **BFF (Backend-for-Frontend)** - the SPA talks to its own backend using a cookie, and the backend holds tokens and calls APIs. If you remember one architecture opinion from this post: browsers get cookies, machines get bearers.
 
 ## OIDC: stop building the login page
 
 OpenID Connect is the protocol for **delegating authentication** to an identity provider (Entra ID, Auth0, Keycloak, Duende IdentityServer) - your app receives identity rather than verifying passwords. The flow worth knowing cold is **authorization code + PKCE** (the correct choice for web apps *and* SPAs; implicit flow is deprecated): app redirects to the IdP with a one-time code challenge → user authenticates there (passwords, MFA, passkeys - all the IdP's problem now) → IdP redirects back with a short-lived **authorization code** → app's *backend* exchanges code (+ verifier + client secret) for tokens. The browser never sees tokens in URLs; the code is useless without the verifier.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant App as Your app
+    participant IdP as Identity provider
+    B->>App: GET /protected (anonymous)
+    App->>B: redirect to IdP (+ PKCE code challenge)
+    B->>IdP: authenticate (password, MFA, passkey)
+    IdP->>B: redirect back with authorization code
+    B->>App: /signin-oidc?code=...
+    App->>IdP: exchange code + verifier + client secret
+    IdP->>App: ID token (+ access token)
+    App->>B: set session cookie
+```
 
 In ASP.NET Core, the standard composition is **OIDC for the login handshake, cookie for the session**:
 
@@ -87,7 +104,7 @@ builder.Services.AddAuthentication(o =>
     {
         o.Authority = "https://login.example.com";
         o.ClientId = "web-app";
-        o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];  // options post: not in source
+        o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];  // keep secrets out of source
         o.ResponseType = "code";               // code flow (PKCE is on by default)
         o.Scope.Add("orders-api");             // request access token for your API
         o.SaveTokens = true;                    // keep tokens for calling APIs on user's behalf
@@ -95,11 +112,11 @@ builder.Services.AddAuthentication(o =>
     });
 ```
 
-Challenge redirects to the IdP; the OIDC handler validates the returned **ID token** (same signature/issuer/audience machinery as above - the handler does it, but now you know what it's doing); the cookie carries the session thereafter. Access tokens saved via `SaveTokens` flow to your typed HttpClients (HttpClient post) for downstream API calls.
+Challenge redirects to the IdP; the OIDC handler validates the returned **ID token** (same signature/issuer/audience machinery as above - the handler does it, but now you know what it's doing); the cookie carries the session thereafter. Access tokens saved via `SaveTokens` flow to your typed HttpClients for downstream API calls.
 
 ## The misconfiguration hall of fame
 
-A checklist assembled from real incidents: `ValidateAudience = false` (confused deputy, discussed); `RequireHttpsMetadata = false` left on outside local dev (key fetch over HTTP = token forgery via MITM); Data Protection keys not persisted (mass logouts, or antiforgery failures across instances); accepting `alg` from the token rather than pinning expected algorithms (the classic none/RS-to-HS confusion attacks - modern handlers defend, old custom validation code often doesn't); tokens or cookies over HTTP because `SecurePolicy` was relaxed "for testing"; and logging raw tokens (logging post: bearer tokens are credentials - redact `Authorization` headers in any request logging).
+A checklist assembled from real incidents: `ValidateAudience = false` (confused deputy, discussed); `RequireHttpsMetadata = false` left on outside local dev (key fetch over HTTP = token forgery via MITM); Data Protection keys not persisted (mass logouts, or antiforgery failures across instances); accepting `alg` from the token rather than pinning expected algorithms (the classic none/RS-to-HS confusion attacks - modern handlers defend, old custom validation code often doesn't); tokens or cookies over HTTP because `SecurePolicy` was relaxed "for testing"; and logging raw tokens (bearer tokens are credentials - redact `Authorization` headers in any request logging).
 
 And the meta-rule that prevents most of it: **don't hand-roll token issuance or password storage.** Between OIDC providers, ASP.NET Core Identity, and Duende, the remaining reasons to write your own are approximately zero, and the failure modes are careers.
 

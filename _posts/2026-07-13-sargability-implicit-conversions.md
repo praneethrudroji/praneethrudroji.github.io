@@ -1,5 +1,6 @@
 ---
 title: Sargability and Implicit Conversions - The Silent Index Killers in .NET + SQL Server Apps
+description: "Why SQL Server scans despite your index: non-sargable predicates and the nvarchar-vs-varchar implicit conversion that silently kills seeks in .NET apps."
 date: 2026-07-13 10:00 +0530
 categories: [backend, sql]
 tags: [sql, sql server, performance, indexes, sargability, implicit conversion, .net]
@@ -26,7 +27,7 @@ WHERE DATEDIFF(DAY, OrderDate, GETDATE()) < 30
 
 -- SARGABLE REWRITES: same logic, expressed as ranges on the raw column
 WHERE OrderDate >= '2026-01-01' AND OrderDate < '2027-01-01'
-WHERE CreatedAtUtc >= @dayStart AND CreatedAtUtc < @dayEnd     -- datetime post's rule
+WHERE CreatedAtUtc >= @dayStart AND CreatedAtUtc < @dayEnd     -- half-open range
 WHERE Email = @email        -- case-insensitive collation already handles case
 WHERE Sku LIKE 'ABC%'       -- prefix LIKE seeks; '%ABC' cannot
 WHERE (Status = @status OR (Status IS NULL AND @status = 'None'))
@@ -82,7 +83,7 @@ The same conversion trap fires wherever types mismatch across a comparison or jo
 
 You don't have to audit by eye - the engine tells on itself:
 
-1. **Plan warnings**: implicit conversions that affect seek selection stamp a **yellow-triangle warning** on the plan root - `Type conversion in expression (CONVERT_IMPLICIT(...)) may affect "Cardinality Estimate"/"Seek Plan"`. In the execution-plans-post workflow, checking root-operator warnings should be step one.
+1. **Plan warnings**: implicit conversions that affect seek selection stamp a **yellow-triangle warning** on the plan root - `Type conversion in expression (CONVERT_IMPLICIT(...)) may affect "Cardinality Estimate"/"Seek Plan"`. In the workflow from the [execution plans post](/posts/reading-sql-execution-plans/), checking root-operator warnings should be step one.
 2. **Plan cache sweep** for CONVERT_IMPLICIT on your hot queries:
 
 ```sql
@@ -94,11 +95,11 @@ WHERE CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE '%CONVERT_IMPLICIT%'
 ORDER BY qs.total_worker_time DESC;
 ```
 
-3. **Residual predicates**: in the plan, a seek whose *Predicate* (not Seek Predicate) carries the real filter means rows were seeked broadly and filtered after - the non-sargable part demoted to a residual. Estimated-vs-actual row gaps on such operators tie back to the statistics post: the optimizer can't estimate through most column-wrapped functions, so bad cardinality compounds the scan.
+3. **Residual predicates**: in the plan, a seek whose *Predicate* (not Seek Predicate) carries the real filter means rows were seeked broadly and filtered after - the non-sargable part demoted to a residual. Estimated-vs-actual row gaps on such operators follow directly: the optimizer can't estimate through most column-wrapped functions, so bad cardinality compounds the scan.
 
 ## When you can't rewrite: make the expression indexable
 
-Sometimes the expression *is* the business logic. Then persist it and index it - the same computed-column technique from the JSON post:
+Sometimes the expression *is* the business logic. Then persist it and index it as a computed column:
 
 ```sql
 ALTER TABLE dbo.Orders ADD OrderYear AS YEAR(OrderDate);           -- deterministic -> indexable
@@ -111,7 +112,7 @@ The optimizer matches the original expression to the computed column automatical
 Two more patterns in the sargability family worth recognizing:
 
 - **The OR that kills a seek**: `WHERE Status = @s OR CustomerId = @c` can't use one index for both branches; the optimizer sometimes builds an index-union, but the reliable rewrite is `UNION ALL` of two seekable queries (dedup as needed).
-- **The optional-filter catch-all**: `WHERE (@name IS NULL OR Name = @name) AND ...` - non-sargable *and* unsniffable; the fixes live in the parameter sniffing post (RECOMPILE or dynamic SQL).
+- **The optional-filter catch-all**: `WHERE (@name IS NULL OR Name = @name) AND ...` - non-sargable *and* unsniffable; the fixes are OPTION (RECOMPILE) or dynamic SQL.
 
 ## Takeaways
 

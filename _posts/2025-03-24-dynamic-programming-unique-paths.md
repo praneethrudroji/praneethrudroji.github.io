@@ -1,8 +1,9 @@
 ---
 layout: post
 title: Dynamic Programming - Unique Paths
+description: The Unique Paths problem solved step by step - recursion, memoization, and bottom-up dynamic programming, with the reasoning that takes you from brute force to O(m*n).
 date: 2025-03-24 23:35 +0530
-categories: [Programming, Algorithms, Dynamic Programming]
+categories: [algorithms, dynamic programming]
 tags: [Dynamic Programming, Algorithms, Recursion, Memoization]
 ---
 

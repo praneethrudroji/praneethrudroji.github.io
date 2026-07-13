@@ -1,9 +1,11 @@
 ---
 layout: post
 title: Reading SQL Execution Plans - A Practical Guide to Query Optimization
+description: How to read SQL Server execution plans operator by operator - seeks vs scans, key lookups, join types, and the warnings that point straight at the fix.
 date: 2026-07-11 09:00 +0530
 categories: [backend, sql]
 tags: [sql, sql server, performance, execution plans, indexes, query optimization]
+pin: true
 ---
 
 ## Why execution plans matter

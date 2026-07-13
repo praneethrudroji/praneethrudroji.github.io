@@ -1,15 +1,17 @@
 ---
 title: SQL Server Deadlocks - Reading the Deadlock Graph and Designing Them Away
+description: Reading SQL Server deadlock graphs step by step, the four lock patterns behind most 1205 errors, and the design fixes that make them stop.
 date: 2026-07-13 08:00 +0530
 categories: [backend, sql]
 tags: [sql, sql server, deadlocks, locking, concurrency, performance]
+mermaid: true
 ---
 
 ## Error 1205 is not random bad luck
 
 "Transaction (Process ID 87) was deadlocked on lock resources with another process and has been chosen as the deadlock victim. Rerun the transaction."
 
-Most teams treat this error as weather - unpredictable, retry and move on. But a deadlock is a *specific, reconstructible event*: two (or more) sessions each holding a lock the other needs, forming a cycle that can never resolve on its own. SQL Server's deadlock monitor detects the cycle (checking roughly every 5 seconds), picks the victim - by default the session cheapest to roll back - and kills it. Every deadlock has an exact cause, the cause is recorded, and almost all of them belong to a handful of patterns you can design away. This post picks up where the locking and isolation levels post left off.
+Most teams treat this error as weather - unpredictable, retry and move on. But a deadlock is a *specific, reconstructible event*: two (or more) sessions each holding a lock the other needs, forming a cycle that can never resolve on its own. SQL Server's deadlock monitor detects the cycle (checking roughly every 5 seconds), picks the victim - by default the session cheapest to roll back - and kills it. Every deadlock has an exact cause, the cause is recorded, and almost all of them belong to a handful of patterns you can design away. This post assumes passing familiarity with how SQL Server locks rows and pages.
 
 ## Step 1: get the deadlock graph (it's already being captured)
 
@@ -36,6 +38,12 @@ Every deadlock graph has the same anatomy, and reading it is a fixed procedure:
 - **process-list**: the sessions involved. For each: the `inputbuf` (the SQL it was running - your first clue), the isolation level, and the `waitresource`.
 - **resource-list**: the locked objects. Each resource shows its **owner** (who holds the lock, and in what mode) and its **waiter** (who's blocked wanting it, and in what mode).
 - The deadlock *is* the cycle: Process A owns resource 1 and waits on resource 2; Process B owns resource 2 and waits on resource 1.
+
+```mermaid
+flowchart LR
+    A["Process A<br>holds X on Key 1"] -. waits for Key 2 .-> B["Process B<br>holds X on Key 2"]
+    B -. waits for Key 1 .-> A
+```
 
 The questions to answer, in order:
 
@@ -66,7 +74,7 @@ Transaction A updates `Orders` then `Customers`; transaction B updates `Customer
 
 Session A: `UPDATE Orders SET ... WHERE OrderId = 5` (holds X on the row). Session B: a reporting query scanning `Orders` at read committed - it acquired S locks and now waits behind A's X. Meanwhile A's *next* statement needs a page B has S-locked (scans hold locks briefly but a big scan holds *something* at all times). Cycle.
 
-**Fix**: this is precisely the reader/writer contention **RCSI eliminates** (locking post) - readers use row versions, take no S locks, and stop participating in these cycles at all. Enabling read committed snapshot removes a whole class of deadlocks in one setting. Alternatively, make the reader's scan a seek with a proper index, shrinking its lock footprint to nearly nothing.
+**Fix**: this is precisely the reader/writer contention **RCSI eliminates** - readers use row versions, take no S locks, and stop participating in these cycles at all. Enabling read committed snapshot removes a whole class of deadlocks in one setting. Alternatively, make the reader's scan a seek with a proper index, shrinking its lock footprint to nearly nothing.
 
 ### Pattern 3: the key lookup deadlock (the sneaky one)
 
@@ -74,13 +82,13 @@ Session A updates a row via the **clustered index** (X on clustered key), and th
 
 You recognize it in the graph: two keylocks on **the same table, different indexes** (one clustered, one nonclustered), with a SELECT as one participant.
 
-**Fix**: make the nonclustered index **covering** for that SELECT (covering-indexes post) - no lookup, no second lock, no cycle. RCSI also dissolves it (the reader stops locking). This pattern alone justifies re-reading your deadlock graphs after "harmless" index changes.
+**Fix**: make the nonclustered index **covering** for that SELECT ([covering indexes](/posts/what-is-clustered-vs-non-clustered-index/)) - no lookup, no second lock, no cycle. RCSI also dissolves it (the reader stops locking). This pattern alone justifies re-reading your deadlock graphs after "harmless" index changes.
 
 ### Pattern 4: serializable range locks and upsert collisions
 
-Two sessions run the same upsert for a row that doesn't exist yet. Under `HOLDLOCK`/serializable (as the upserts post prescribes), each takes a **RangeS-S** or RangeI-N lock on the gap; both then try to convert/insert, each blocked by the other's range lock. Graph signature: `RangeS-S` owners waiting on each other. The same shape appears with foreign key checks under serializable, and with `IF EXISTS ... INSERT` code even at read committed (as a duplicate-key race instead - pick your failure).
+Two sessions run the same upsert for a row that doesn't exist yet. Under `HOLDLOCK`/serializable (the standard safe-upsert setup), each takes a **RangeS-S** or RangeI-N lock on the gap; both then try to convert/insert, each blocked by the other's range lock. Graph signature: `RangeS-S` owners waiting on each other. The same shape appears with foreign key checks under serializable, and with `IF EXISTS ... INSERT` code even at read committed (as a duplicate-key race instead - pick your failure).
 
-**Fix**: acquire the *exclusive-intent* lock up front - `UPDLOCK` with the serializable hint (`WITH (UPDLOCK, SERIALIZABLE)`), exactly as the upsert patterns post shows. U locks are incompatible with each other, so the second session waits *before* the cycle forms, serializing the upserts cleanly rather than deadlocking them.
+**Fix**: acquire the *exclusive-intent* lock up front - `UPDLOCK` with the serializable hint (`WITH (UPDLOCK, SERIALIZABLE)`). U locks are incompatible with each other, so the second session waits *before* the cycle forms, serializing the upserts cleanly rather than deadlocking them.
 
 ### Honorable mention: the unindexed foreign key
 
@@ -90,13 +98,13 @@ Deleting a parent row requires checking the child table for references; without 
 
 Design measures, roughly in order of leverage:
 
-1. **RCSI** - removes readers from cycles wholesale (mind the version-store/tempdb cost and the queue-claim caveats from the locking post).
+1. **RCSI** - removes readers from cycles wholesale (mind the version-store/tempdb cost).
 2. **Index for seeks and coverage** - smaller lock footprints, no key lookups; patterns 2 and 3 mostly evaporate.
-3. **Short transactions** - fewer locks held, held briefly; never hold a transaction across app-side work (same rule as the locking post, doubled).
+3. **Short transactions** - fewer locks held, held briefly; never hold a transaction across app-side work.
 4. **Consistent access ordering** and **UPDLOCK-first upserts** for the write-write patterns.
 5. **Touch fewer rows per statement** - batch big updates (1,000-5,000 rows per transaction); this also dodges lock escalation to table level, which turns polite row conflicts into table-sized deadlocks.
 
-And then tolerance: some residual deadlock rate on a busy OLTP system is normal, and error 1205 is **explicitly retriable** - the victim was rolled back cleanly. Wire 1205 into your transient-error retry policy (retries post; EF Core's `EnableRetryOnFailure` already includes it) with a small backoff and jitter. Retry is the correct *last* layer - after design fixes, not instead of them: a deadlock rate that climbs with load is a design problem wearing a retry-shaped bandage.
+And then tolerance: some residual deadlock rate on a busy OLTP system is normal, and error 1205 is **explicitly retriable** - the victim was rolled back cleanly. Wire 1205 into your transient-error retry policy (EF Core's `EnableRetryOnFailure` already includes it) with a small backoff and jitter. Retry is the correct *last* layer - after design fixes, not instead of them: a deadlock rate that climbs with load is a design problem wearing a retry-shaped bandage.
 
 ## A worked read-through
 

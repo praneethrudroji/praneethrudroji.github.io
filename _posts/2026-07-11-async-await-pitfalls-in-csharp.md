@@ -1,6 +1,7 @@
 ---
 layout: post
 title: Async/Await Pitfalls in C# - Deadlocks, ConfigureAwait, and Fire-and-Forget
+description: ConfigureAwait, sync-over-async deadlocks, async void, and fire-and-forget - the C# async/await pitfalls that bite production apps, with fixes.
 date: 2026-07-11 11:00 +0530
 categories: [backend, dotnet]
 tags: [c#, .net, async, concurrency, dotnet]
