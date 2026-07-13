@@ -1,0 +1,21 @@
+# Must-watch videos, grouped by category.
+#
+# To add a video: paste the full YouTube URL (any of these work as-is):
+#   https://www.youtube.com/watch?v=VIDEO_ID
+#   https://youtu.be/VIDEO_ID
+#   https://www.youtube.com/shorts/VIDEO_ID
+# `title` is optional but recommended.
+#
+# To add a new category, just add a new "- category: Name" block below.
+# Only whoever can push to this repo can edit this file - the page itself
+# is read-only for visitors.
+
+- category: AI
+  videos:
+    - url: https://www.youtube.com/watch?v=aircAruvnKk
+      title: But what is a neural network? (3Blue1Brown)
+
+# - category: .NET
+#   videos:
+#     - url: https://www.youtube.com/watch?v=VIDEO_ID
+#       title: Some talk title
