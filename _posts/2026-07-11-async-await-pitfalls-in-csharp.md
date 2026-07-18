@@ -21,7 +21,7 @@ public IActionResult GetOrder(int id)
 }
 ```
 
-In an ASP.NET (classic, not Core) or WPF/WinForms context, this deadlocks under load. Here's why: `.Result` blocks the current thread waiting for the async method to complete. When `GetOrderAsync` hits its first `await`, by default it captures the current `SynchronizationContext` so it can resume back on that same context after the awaited work finishes. In ASP.NET classic, that context only allows one thread at a time. The calling thread is now blocked inside `.Result`, waiting for `GetOrderAsync` to finish - but `GetOrderAsync` can't resume, because resuming requires that same thread, which is busy blocking. Neither side can proceed.
+In an ASP.NET (classic, not Core) or Windows Presentation Foundation ([WPF](/glossary/#wpf))/WinForms context, this deadlocks under load. Here's why: `.Result` blocks the current thread waiting for the async method to complete. When `GetOrderAsync` hits its first `await`, by default it captures the current `SynchronizationContext` so it can resume back on that same context after the awaited work finishes. In ASP.NET classic, that context only allows one thread at a time. The calling thread is now blocked inside `.Result`, waiting for `GetOrderAsync` to finish - but `GetOrderAsync` can't resume, because resuming requires that same thread, which is busy blocking. Neither side can proceed.
 
 The fix in application code is simple: don't block on async code. Make the caller `async` too, and `await` all the way up:
 

@@ -55,7 +55,7 @@ WHERE rsi.start_time > DATEADD(DAY, -2, SYSUTCDATETIME())
 ORDER BY rs.avg_duration DESC;
 ```
 
-In practice you'll live in the SSMS reports under the database's **Query Store** folder: *Regressed Queries* (the "what changed" report - queries whose recent performance degraded vs history), *Top Resource Consuming Queries*, and *Queries With Forced Plans*. Each shows the plan timeline: dots per plan per interval, so a query that flipped from a good plan to a bad one displays as two colored bands with an obvious break - usually at exactly 3 PM yesterday.
+In practice you'll live in the SQL Server Management Studio ([SSMS](/glossary/#ssms)) reports under the database's **Query Store** folder: *Regressed Queries* (the "what changed" report - queries whose recent performance degraded vs history), *Top Resource Consuming Queries*, and *Queries With Forced Plans*. Each shows the plan timeline: dots per plan per interval, so a query that flipped from a good plan to a bad one displays as two colored bands with an obvious break - usually at exactly 3 PM yesterday.
 
 ## Diagnosing the classic incident: plan regression
 
@@ -75,7 +75,7 @@ EXEC sp_query_store_unforce_plan @query_id = 4123, @plan_id = 217;
 
 Forcing pins the optimizer to the chosen plan for that query. It's the correct **incident response**: sub-minute mitigation, no deploy, reversible. It is the wrong **permanent state**, for three reasons: the forced plan can go stale as data grows (the plan that's right today is the scan you're preventing next year); forcing fails silently if the schema changes underneath it (dropped index → `last_force_failure_reason` in `sys.query_store_plan`, query silently reverts to optimizer choice); and every forced plan is an undocumented behavioral override the next engineer won't know exists. Treat the *Queries With Forced Plans* report as a to-do list of unfixed root causes, and review it monthly.
 
-SQL Server 2022's **CE feedback / plan correction** features automate a version of this - `AUTOMATIC_TUNING (FORCE_LAST_GOOD_PLAN = ON)` detects regressions and force-reverts automatically, then *un*-forces if it doesn't help. Genuinely useful, with the same caveat: it's mitigation on autopilot, not root-cause repair.
+SQL Server 2022's **cardinality estimation ([CE](/glossary/#ce)) feedback / plan correction** features automate a version of this - `AUTOMATIC_TUNING (FORCE_LAST_GOOD_PLAN = ON)` detects regressions and force-reverts automatically, then *un*-forces if it doesn't help. Genuinely useful, with the same caveat: it's mitigation on autopilot, not root-cause repair.
 
 ## The features people miss
 

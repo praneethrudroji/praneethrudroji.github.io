@@ -11,7 +11,7 @@ tags: [cdc, sql server, data engineering, etl, change data capture]
 
 You need to know when rows in a table change - not just the current state, but the fact that an update happened, what changed, and in what order - so a downstream system (a data warehouse, a search index, a cache, another service) can react to it. The naive answers all have real costs: polling with a `LastModified` column misses deletes and can't tell you what actually changed; triggers add write-path latency and are easy to forget when someone alters the schema; application-level event publishing means every write path in every service has to remember to publish, and eventually one won't.
 
-Change Data Capture (CDC) in SQL Server takes a different approach: it reads the transaction log directly. Every insert, update, and delete is already recorded there for durability and replication purposes; CDC just exposes that stream as queryable change tables, without touching your write path at all.
+Change Data Capture ([CDC](/glossary/#cdc)) in SQL Server takes a different approach: it reads the transaction log directly. Every insert, update, and delete is already recorded there for durability and replication purposes; CDC just exposes that stream as queryable change tables, without touching your write path at all.
 
 ## How it actually works
 

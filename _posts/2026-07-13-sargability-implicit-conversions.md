@@ -48,7 +48,7 @@ CREATE TABLE dbo.Customers (
 );
 ```
 
-Your .NET code (ADO.NET, Dapper, or older EF configurations):
+Your .NET code (ADO.NET, Dapper, or older Entity Framework ([EF](/glossary/#ef-core)) configurations):
 
 ```csharp
 cmd.Parameters.AddWithValue("@code", customerCode);   // C# string -> NVARCHAR by default

@@ -41,7 +41,7 @@ SELECT * FROM Ranked WHERE rn = 1;
 Latest reading per device, latest status per order, current address per customer - all this one shape. Notes that separate the pros:
 
 - **Deterministic tiebreaker** in the ORDER BY (`ReadingId DESC`), same determinism discipline as keyset pagination - without it, ties pick arbitrarily and results differ between runs.
-- The window function must live in a CTE/derived table because **you can't put it in WHERE** (logical processing order: window functions evaluate with SELECT, after WHERE).
+- The window function must live in a common table expression ([CTE](/glossary/#cte)) or derived table because **you can't put it in WHERE** (logical processing order: window functions evaluate with SELECT, after WHERE).
 - The same pattern with `WHERE rn > 1` feeding a DELETE is the standard **duplicate-row cleanup** - dedup a table in one statement, choosing exactly which copy survives.
 
 `RANK` vs `ROW_NUMBER` matters exactly when ties are real: "top 3 salaries per department" with RANK returns 4 people if two tie for third - usually what the business meant.

@@ -63,7 +63,7 @@ Design notes, each earning its keep:
 
 ## Writing to the outbox: same transaction, no exceptions to the rule
 
-With EF Core, the outbox row rides along in the aggregate's `SaveChanges`:
+With Entity Framework Core ([EF Core](/glossary/#ef-core)), the outbox row rides along in the aggregate's `SaveChanges`:
 
 ```csharp
 public async Task PlaceOrderAsync(PlaceOrder cmd, CancellationToken ct)

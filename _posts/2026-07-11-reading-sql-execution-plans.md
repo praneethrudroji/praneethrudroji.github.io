@@ -16,7 +16,7 @@ This post walks through a real scenario in SQL Server: a query that looks fine o
 
 ## Getting a plan
 
-In SSMS, `Ctrl+M` toggles "Include Actual Execution Plan" before you run a query. You get a graphical tree of operators, each annotated with cost percentages. For a faster feedback loop that doesn't need SSMS, turn on I/O and time stats in any session:
+In SQL Server Management Studio ([SSMS](/glossary/#ssms)), `Ctrl+M` toggles "Include Actual Execution Plan" before you run a query. You get a graphical tree of operators, each annotated with cost percentages. For a faster feedback loop that doesn't need SSMS, turn on I/O and time stats in any session:
 
 ```sql
 SET STATISTICS IO ON;
