@@ -144,3 +144,9 @@ Dispatched rows are audit gold for a while and dead weight after. Options in asc
 - The claim query (UPDLOCK + READPAST + OUTPUT) plus a filtered pending index is the entire concurrency story - competing dispatchers scale without coordination.
 - At-least-once is a promise about the producer; idempotent consumers with an inbox table complete the contract.
 - Park poison messages, alert on them, batch the cleanup - an outbox without housekeeping is a future incident with excellent audit logs.
+
+## Where to go next
+
+- [Kafka Delivery Semantics in .NET](/posts/kafka-delivery-semantics-dotnet/) - the consumer half of the at-least-once contract, in Confluent.Kafka detail.
+- [Streaming SQL Server Changes into Kafka with Debezium](/posts/streaming-sql-server-cdc-into-kafka-debezium/) - Debezium can tail the outbox table for you (its outbox event router), deleting the hand-rolled dispatcher entirely.
+- [Microservice Boundaries](/posts/microservice-boundaries-data-ownership/) - where the outbox fits in the larger events-vs-calls architecture.

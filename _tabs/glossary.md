@@ -27,7 +27,18 @@ without a decoder ring.
 | **SARGable**{: #sargable } | Search ARGument able | A predicate written so the optimizer can use an index seek for it - e.g. `WHERE OrderDate >= @d`, not `WHERE YEAR(OrderDate) = 2026`. |
 | **S / U / X locks**{: #lock-modes } | Shared / Update / Exclusive locks | The three lock modes that matter for deadlocks: Shared for reading, Exclusive for writing, Update for "reading with intent to write". Explained visually in the [deadlocks post](/posts/sql-server-deadlocks-deep-dive/). |
 | **SSMS**{: #ssms } | SQL Server Management Studio | Microsoft's desktop tool for querying and managing SQL Server. |
+| **TDS**{: #tds } | Tabular Data Stream | The wire protocol clients use to talk to SQL Server; `SqlBulkCopy` is fast because it uses the protocol's dedicated bulk-load mode. |
 | **XE**{: #xe } | Extended Events | SQL Server's lightweight tracing framework; the always-on `system_health` session is an Extended Events session. |
+
+## Distributed systems and messaging
+
+| Abbreviation | Full form | What it means |
+| :-- | :-- | :-- |
+| **DLQ**{: #dlq } | Dead-Letter Queue | The parking lot for messages that repeatedly fail processing, so one poison message cannot block the queue; you monitor it and decide each message's fate. |
+| **EOS**{: #eos } | Exactly-Once Semantics | Kafka's transactional guarantee that a consume-transform-produce step either fully happens or fully does not - within Kafka; it does not extend to your database or other side effects. |
+| **ISR**{: #isr } | In-Sync Replicas | The set of a Kafka partition's replicas that are fully caught up with the leader; `acks=all` waits for exactly this set, which is why its size matters. |
+| **RU**{: #ru } | Request Unit | Azure Cosmos DB's currency of throughput; every read and write costs RUs, and each physical partition has a fixed share of the container's provisioned RU/s. |
+| **TTL**{: #ttl } | Time To Live | An expiry attached to a cache entry, message, or record, after which the system deletes it automatically. |
 
 ## .NET and web
 

@@ -20,9 +20,28 @@ Start here if you want the full arc: how data is stored, how queries execute, wh
 
 - [Window Functions in SQL Server](/posts/window-functions-sql-server/) - ROW_NUMBER dedup, running totals, gaps and islands, and the ROWS vs RANGE trap.
 
-## Data engineering
+## Kafka and event streaming
 
-- [Change Data Capture in SQL Server](/posts/change-data-capture-in-sql-server/) - how CDC works under the hood and when to use it.
+Read in order: the mental model, then the code, then the pipeline that feeds it from your database.
+
+1. [Kafka for Engineers Who Know Databases](/posts/kafka-for-engineers-who-know-databases/) - the log vs queue distinction, partitions, consumer groups, and replication, built up from the transaction log you already know.
+2. [Kafka Delivery Semantics in .NET](/posts/kafka-delivery-semantics-dotnet/) - at-least-once done right with Confluent.Kafka, and what exactly-once actually means.
+3. [Streaming SQL Server Changes into Kafka with Debezium](/posts/streaming-sql-server-cdc-into-kafka-debezium/) - CDC and Kafka joined in production: snapshots, tombstones, schema evolution.
+
+## Data-intensive systems
+
+How to design for data volume - each stands alone, but they reference each other.
+
+1. [Change Data Capture in SQL Server](/posts/change-data-capture-in-sql-server/) - how CDC works under the hood and when to use it.
+2. [Partitioning - The Decision That Follows You Everywhere](/posts/partitioning-strategies-that-follow-you-everywhere/) - one problem across Kafka, SQL Server tables, and DynamoDB/Cosmos: keys, skew, hot partitions, resharding.
+3. [Processing 100 Million Rows a Night](/posts/processing-100-million-rows-a-night/) - keyset chunking, watermarks, SqlBulkCopy, and backpressure with bounded channels.
+
+## Microservices in production
+
+1. [Microservice Boundaries](/posts/microservice-boundaries-data-ownership/) - data ownership, the distributed monolith, sagas, and the case for the modular monolith.
+2. [The Outbox Pattern End-to-End](/posts/outbox-pattern-end-to-end/) - the dual-write problem and its fix; the plumbing every event-driven service needs.
+3. [Timeouts, Retries, and Circuit Breakers](/posts/timeouts-retries-circuit-breakers-dotnet/) - resilience as a system, with Polly v8, and the outages resilience code causes.
+4. [Choosing a Cloud Messaging Backbone](/posts/choosing-a-cloud-messaging-backbone/) - Service Bus, Event Hubs, SQS/SNS, or Kafka: the queue-vs-log question that decides it.
 
 ## .NET in production
 

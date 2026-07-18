@@ -88,3 +88,9 @@ This is essentially what tools like Azure Data Factory's CDC connector, Debezium
 ## When to reach for it
 
 CDC is a strong fit when you need reliable, ordered change history out of SQL Server without adding write-path overhead, and you already have infrastructure to poll/consume the change tables on a schedule. It's a poor fit as the *only* mechanism for something latency-sensitive (it's near-real-time, not synchronous), and it's not a substitute for an outbox pattern if you need transactional guarantees that a business event and a state change commit together - CDC only tells you the state changed, not why.
+
+## Where to go next
+
+- [Streaming SQL Server Changes into Kafka with Debezium](/posts/streaming-sql-server-cdc-into-kafka-debezium/) - the production version of the polling loop above: change tables into Kafka topics, snapshots, tombstones, and schema evolution.
+- [The Outbox Pattern End-to-End](/posts/outbox-pattern-end-to-end/) - when you need "why it changed" (domain events) rather than "that it changed" (row changes).
+- [Kafka for Engineers Who Know Databases](/posts/kafka-for-engineers-who-know-databases/) - the log-based mental model CDC pipelines feed into.
