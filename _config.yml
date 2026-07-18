@@ -118,15 +118,10 @@ toc: true
 
 comments:
   # Global switch for the post-comment system. Keeping it empty means disabled.
-  # giscus setup status: Discussions is ENABLED on the repo and repo_id is filled in.
-  # ONE manual step remains (requires your GitHub login, can't be automated):
-  #   1. Install the giscus app on this repo: https://github.com/apps/giscus
-  #      (Install -> Only select repositories -> praneethrudroji.github.io)
-  # After that, fetch the category id and flip this on:
-  #   curl -s "https://giscus.app/api/discussions/categories?repo=praneethrudroji%2Fpraneethrudroji.github.io"
-  #   -> copy the id of the "Announcements" category into category_id below,
-  #      then set provider: giscus. (Or ask Claude to finish it - it runs the same curl.)
-  provider: # [disqus | utterances | giscus] - set to giscus after the giscus app is installed
+  # giscus is fully configured: Discussions enabled, giscus app installed,
+  # comments stored in the repo's "Announcements" discussion category.
+  # ids were fetched from https://giscus.app/api/discussions/categories?repo=...
+  provider: giscus # [disqus | utterances | giscus]
   # The provider options are as follows:
   disqus:
     shortname: # fill with the Disqus shortname. › https://help.disqus.com/en/articles/1717111-what-s-a-shortname
@@ -138,8 +133,8 @@ comments:
   giscus:
     repo: praneethrudroji/praneethrudroji.github.io
     repo_id: R_kgDOOLVqHg
-    category: Announcements # default category created when Discussions was enabled; only maintainers can start threads there, which is what giscus recommends
-    category_id: # fill in after installing the giscus app (see instructions above)
+    category: Announcements # only maintainers can start threads there, which is what giscus recommends
+    category_id: DIC_kwDOOLVqHs4DBINI
     mapping: pathname
     strict: "0"
     input_position: bottom
