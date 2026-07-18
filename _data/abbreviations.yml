@@ -1,0 +1,67 @@
+# Abbreviations that get hover tooltips (and glossary links) in post prose.
+# Consumed by assets/js/abbr.js; keep anchors in sync with _tabs/glossary.md.
+# Deliberately excludes ubiquitous terms (SQL, API, HTTP, CPU, DB, UI, IO)
+# where a tooltip on every occurrence would be noise.
+- abbr: EF Core
+  full: Entity Framework Core
+  anchor: ef-core
+- abbr: RCSI
+  full: Read Committed Snapshot Isolation
+  anchor: rcsi
+- abbr: CDC
+  full: Change Data Capture
+  anchor: cdc
+- abbr: SSMS
+  full: SQL Server Management Studio
+  anchor: ssms
+- abbr: CTE
+  full: Common Table Expression
+  anchor: cte
+- abbr: DMV
+  full: Dynamic Management View
+  anchor: dmv
+- abbr: HOBT
+  full: Heap Or B-Tree
+  anchor: hobt
+- abbr: LSN
+  full: Log Sequence Number
+  anchor: lsn
+- abbr: OLTP
+  full: Online Transaction Processing
+  anchor: oltp
+- abbr: JWT
+  full: JSON Web Token
+  anchor: jwt
+- abbr: OIDC
+  full: OpenID Connect
+  anchor: oidc
+- abbr: PKCE
+  full: Proof Key for Code Exchange
+  anchor: pkce
+- abbr: MFA
+  full: Multi-Factor Authentication
+  anchor: mfa
+- abbr: SPA
+  full: Single-Page Application
+  anchor: spa
+- abbr: BFF
+  full: Backend For Frontend
+  anchor: bff
+- abbr: CSRF
+  full: Cross-Site Request Forgery
+  anchor: csrf
+- abbr: XSS
+  full: Cross-Site Scripting
+  anchor: xss
+- abbr: RS256
+  full: RSA + SHA-256 signature
+  anchor: rs256
+- abbr: WPF
+  full: Windows Presentation Foundation
+  anchor: wpf
+- abbr: ORM
+  full: Object-Relational Mapper
+  anchor: orm
+- abbr: IdP
+  full: Identity Provider
+  anchor: oidc
