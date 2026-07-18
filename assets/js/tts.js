@@ -95,9 +95,15 @@
 
   function matchingVoices() {
     var lang = (document.documentElement.lang || 'en').split('-')[0].toLowerCase();
-    return synth.getVoices().filter(function (v) {
+    var real = synth.getVoices().filter(function (v) {
       return v.lang.toLowerCase().indexOf(lang) === 0 && !NOVELTY_RE.test(v.name);
     });
+    /* Prefer the major en-US/en-GB voices; regional ones (en-ZA "Tessa",
+       en-IN, en-AU...) only appear if nothing better exists. */
+    var major = real.filter(function (v) {
+      return /^en[-_](us|gb)/i.test(v.lang);
+    });
+    return major.length ? major : real;
   }
 
   /* macOS ships joke/character voices that browsers list alongside real
@@ -108,6 +114,7 @@
   /* Higher score = more natural-sounding, based on known voice families. */
   function voiceScore(v) {
     var s = 0;
+    if (/uk english female/i.test(v.name)) s += 9; /* preferred default */
     if (/natural/i.test(v.name)) s += 8; /* Edge neural voices */
     if (/premium|enhanced/i.test(v.name)) s += 6; /* Apple high-quality voices */
     if (/google/i.test(v.name)) s += 4; /* Chrome network voices */
@@ -253,7 +260,7 @@
   var CSS =
     '#tts-player{background:var(--card-bg);box-shadow:var(--card-shadow);' +
     'border:1px solid var(--btn-border-color,rgba(128,128,128,.25));border-radius:.75rem;' +
-    'padding:.75rem 1rem;margin:0 0 1.75rem;display:flex;flex-direction:column;gap:.6rem}' +
+    'padding:.6rem .9rem;margin:.75rem 0 1.75rem;display:flex;flex-direction:column;gap:.5rem}' +
     '#tts-player .tts-row{display:flex;align-items:center;gap:.75rem;min-width:0}' +
     '#tts-player button{border:0;background:none;padding:0;color:var(--text-muted-color,gray);cursor:pointer}' +
     '#tts-player .tts-play{flex:none;width:2.75rem;height:2.75rem;border-radius:50%;' +
@@ -261,8 +268,9 @@
     '#tts-player .tts-play:hover{filter:brightness(1.1)}' +
     '#tts-player .tts-restart{flex:none;font-size:1rem;width:2rem;height:2rem}' +
     '#tts-player .tts-restart:hover{color:var(--link-color)}' +
-    '#tts-player .tts-wave{flex:1;display:flex;align-items:center;gap:3px;height:2.25rem;min-width:0;overflow:hidden}' +
-    '#tts-player .tts-wave span{flex:1;max-width:5px;min-width:2px;border-radius:2px;' +
+    '#tts-player .tts-wave{flex:1;display:flex;align-items:center;justify-content:space-between;' +
+    'gap:3px;height:2.25rem;min-width:0;overflow:hidden}' +
+    '#tts-player .tts-wave span{flex:none;width:4px;border-radius:2px;' +
     'background:var(--btn-border-color,rgba(128,128,128,.35));height:30%;transition:background .2s}' +
     '#tts-player .tts-wave span.on{background:var(--link-color)}' +
     '#tts-player.playing .tts-wave span{animation:tts-wave 1.1s ease-in-out infinite alternate}' +
@@ -299,7 +307,7 @@
   function updateProgress() {
     var frac = playing ? chunkIdx / chunks.length : 0;
     bars.forEach(function (b, i) {
-      b.classList.toggle('on', playing && i / BAR_COUNT <= frac);
+      b.classList.toggle('on', playing && i / bars.length <= frac);
     });
     pctLabel.textContent = playing ? Math.round(frac * 100) + '%' : '';
   }
@@ -309,7 +317,7 @@
       .sort(function (a, b) {
         return voiceScore(b) - voiceScore(a);
       })
-      .slice(0, 10);
+      .slice(0, 6);
     if (!voices.length) return;
     var selected = pickVoice();
     voiceSel.innerHTML = '';
@@ -350,7 +358,7 @@
       '<select class="tts-voice" aria-label="Voice" hidden></select>' +
       '<button type="button" class="tts-scroll" title="Auto-scroll to the line being read" ' +
       'aria-label="Toggle auto-scroll to the line being read" aria-pressed="false">' +
-      '<i class="fas fa-crosshairs" aria-hidden="true"></i></button>' +
+      '<i class="fas fa-arrows-down-to-line" aria-hidden="true"></i></button>' +
       '<i class="fas fa-volume-high tts-vol-icon" aria-hidden="true"></i>' +
       '<input type="range" min="0" max="1" step="0.1" value="1" aria-label="Volume">' +
       '</div>';
@@ -365,17 +373,6 @@
     scrollBtn = card.querySelector('.tts-scroll');
     scrollBtn.classList.toggle('active', autoScroll);
     scrollBtn.setAttribute('aria-pressed', String(autoScroll));
-
-    var wave = card.querySelector('.tts-wave');
-    bars = [];
-    for (var i = 0; i < BAR_COUNT; i++) {
-      var b = document.createElement('span');
-      /* pseudo-random but stable bar heights for a waveform look */
-      b.style.height = 22 + Math.abs(Math.sin(i * 2.7) * 58) + '%';
-      b.style.animationDelay = (i % 7) * -0.16 + 's';
-      wave.appendChild(b);
-      bars.push(b);
-    }
 
     RATES.forEach(function (r) {
       var opt = document.createElement('option');
@@ -415,6 +412,25 @@
     content.addEventListener('click', onContentClick);
 
     content.parentNode.insertBefore(card, content);
+    buildBars();
+  }
+
+  /* Bar count is derived from the rendered width so the waveform always
+     fills the row (4px bar + ~3px gap per step). */
+  function buildBars() {
+    var wave = card.querySelector('.tts-wave');
+    wave.innerHTML = '';
+    var count = Math.max(20, Math.min(80, Math.floor(wave.clientWidth / 7))) || BAR_COUNT;
+    bars = [];
+    for (var i = 0; i < count; i++) {
+      var b = document.createElement('span');
+      /* pseudo-random but stable bar heights for a waveform look */
+      b.style.height = 22 + Math.abs(Math.sin(i * 2.7) * 58) + '%';
+      b.style.animationDelay = (i % 7) * -0.16 + 's';
+      wave.appendChild(b);
+      bars.push(b);
+    }
+    updateProgress();
   }
 
   /* ---------- init ---------- */
