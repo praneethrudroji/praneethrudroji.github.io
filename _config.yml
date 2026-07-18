@@ -118,16 +118,15 @@ toc: true
 
 comments:
   # Global switch for the post-comment system. Keeping it empty means disabled.
-  # giscus needs two manual, one-time steps before this works (I can't do these for you,
-  # they require repo-admin access and a GitHub app install):
-  #   1. Settings -> General -> Features -> check "Discussions" on this repo
-  #   2. Install the giscus app on this repo: https://github.com/apps/giscus
-  #   3. Go to https://giscus.app, enter this repo, pick a discussion category
-  #      (e.g. create one called "Comments"), and copy the generated category_id below.
-  #      repo_id is already filled in - it's this repo's GraphQL node id.
-  #   4. Only then, set provider: giscus below (it's left blank/disabled until category_id
-  #      is filled in, so the site doesn't show a broken comment widget in the meantime).
-  provider: # [disqus | utterances | giscus] - set to giscus after finishing steps 1-4 above
+  # giscus setup status: Discussions is ENABLED on the repo and repo_id is filled in.
+  # ONE manual step remains (requires your GitHub login, can't be automated):
+  #   1. Install the giscus app on this repo: https://github.com/apps/giscus
+  #      (Install -> Only select repositories -> praneethrudroji.github.io)
+  # After that, fetch the category id and flip this on:
+  #   curl -s "https://giscus.app/api/discussions/categories?repo=praneethrudroji%2Fpraneethrudroji.github.io"
+  #   -> copy the id of the "Announcements" category into category_id below,
+  #      then set provider: giscus. (Or ask Claude to finish it - it runs the same curl.)
+  provider: # [disqus | utterances | giscus] - set to giscus after the giscus app is installed
   # The provider options are as follows:
   disqus:
     shortname: # fill with the Disqus shortname. › https://help.disqus.com/en/articles/1717111-what-s-a-shortname
@@ -139,8 +138,8 @@ comments:
   giscus:
     repo: praneethrudroji/praneethrudroji.github.io
     repo_id: R_kgDOOLVqHg
-    category: Comments # create this category in step 3 above
-    category_id: # fill in after completing steps 1-3 above
+    category: Announcements # default category created when Discussions was enabled; only maintainers can start threads there, which is what giscus recommends
+    category_id: # fill in after installing the giscus app (see instructions above)
     mapping: pathname
     strict: "0"
     input_position: bottom
