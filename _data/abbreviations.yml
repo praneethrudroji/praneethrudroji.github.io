@@ -65,3 +65,39 @@
 - abbr: IdP
   full: Identity Provider
   anchor: oidc
+- abbr: MARS
+  full: Multiple Active Result Sets
+  anchor: mars
+- abbr: CLR
+  full: Common Language Runtime
+  anchor: clr
+- abbr: LOH
+  full: Large Object Heap
+  anchor: loh
+- abbr: POH
+  full: Pinned Object Heap
+  anchor: poh
+- abbr: OTel
+  full: OpenTelemetry
+  anchor: otel
+- abbr: RPC
+  full: Remote Procedure Call
+  anchor: rpc
+- abbr: CQRS
+  full: Command Query Responsibility Segregation
+  anchor: cqrs
+- abbr: DSP
+  full: Demand-Side Platform
+  anchor: dsp
+- abbr: SSP
+  full: Supply-Side Platform
+  anchor: ssp
+- abbr: RTB
+  full: Real-Time Bidding
+  anchor: rtb
+- abbr: OpenRTB
+  full: Open Real-Time Bidding
+  anchor: openrtb
+- abbr: IAB
+  full: Interactive Advertising Bureau
+  anchor: iab

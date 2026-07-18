@@ -19,6 +19,7 @@ without a decoder ring.
 | **FK**{: #fk } | Foreign Key | A column that points at another table's key, with a constraint that keeps the reference valid. |
 | **HOBT**{: #hobt } | Heap Or B-Tree | Internal name for one physical structure storing a table or index; deadlock graphs identify locked objects by their `hobt_id`. |
 | **LSN**{: #lsn } | Log Sequence Number | The position stamp of a record in the transaction log; CDC uses LSN ranges to say "give me changes between here and here". |
+| **MARS**{: #mars } | Multiple Active Result Sets | A connection-string option that lets one physical connection have more than one pending command or open result set at a time, instead of requiring each to finish before the next starts. |
 | **NC**{: #nc } | Nonclustered (index) | A separate index structure that points back at the table rows, as opposed to the clustered index which *is* the table. |
 | **OLTP**{: #oltp } | Online Transaction Processing | The workload style of a live application database: many small, quick reads and writes from concurrent users. |
 | **POC pattern**{: #poc } | Partition, Order, Covered | The recipe for indexing window functions: key the index on the Partition columns, then the Order columns, and INCLUDE the Covered payload. |
@@ -34,9 +35,11 @@ without a decoder ring.
 
 | Abbreviation | Full form | What it means |
 | :-- | :-- | :-- |
+| **CQRS**{: #cqrs } | Command Query Responsibility Segregation | Splitting the code path (and optionally the data model) that handles writes from the one that serves reads, so each can be optimized independently. |
 | **DLQ**{: #dlq } | Dead-Letter Queue | The parking lot for messages that repeatedly fail processing, so one poison message cannot block the queue; you monitor it and decide each message's fate. |
 | **EOS**{: #eos } | Exactly-Once Semantics | Kafka's transactional guarantee that a consume-transform-produce step either fully happens or fully does not - within Kafka; it does not extend to your database or other side effects. |
 | **ISR**{: #isr } | In-Sync Replicas | The set of a Kafka partition's replicas that are fully caught up with the leader; `acks=all` waits for exactly this set, which is why its size matters. |
+| **RPC**{: #rpc } | Remote Procedure Call | A request/response message one node sends to another over the network to invoke an action on it, e.g. Raft's `RequestVote` and `AppendEntries` calls. |
 | **RU**{: #ru } | Request Unit | Azure Cosmos DB's currency of throughput; every read and write costs RUs, and each physical partition has a fixed share of the container's provisioned RU/s. |
 | **TTL**{: #ttl } | Time To Live | An expiry attached to a cache entry, message, or record, after which the system deletes it automatically. |
 
@@ -45,18 +48,32 @@ without a decoder ring.
 | Abbreviation | Full form | What it means |
 | :-- | :-- | :-- |
 | **BFF**{: #bff } | Backend For Frontend | A small server-side app that sits between a browser app and your APIs, holding tokens server-side so the browser never sees them. |
+| **CLR**{: #clr } | Common Language Runtime | The execution engine that runs .NET bytecode and owns memory management, including the garbage collector. |
 | **CSRF**{: #csrf } | Cross-Site Request Forgery | An attack where another site tricks a logged-in browser into sending a request to your app; mitigated with anti-forgery tokens and SameSite cookies. |
 | **EF Core**{: #ef-core } | Entity Framework Core | Microsoft's object-relational mapper for .NET - it translates C# LINQ queries into SQL. |
 | **JWT**{: #jwt } | JSON Web Token | A signed, self-contained token carrying claims about a user; APIs validate the signature instead of holding session state. |
+| **LOH**{: #loh } | Large Object Heap | The heap segment for objects 85,000 bytes or larger; collected only during a Gen2 pass and not compacted by default, so it fragments under sustained large allocations. |
 | **MFA**{: #mfa } | Multi-Factor Authentication | Requiring a second proof (authenticator app, hardware key) beyond the password. |
 | **MQ**{: #mq } | Message Queue | Middleware (RabbitMQ, Azure Service Bus) that stores messages so producers and consumers do not have to be online at the same time. |
 | **OIDC**{: #oidc } | OpenID Connect | The standard login protocol built on OAuth 2.0; what "sign in with..." flows and identity providers speak. |
 | **ORM**{: #orm } | Object-Relational Mapper | A library that maps database rows to objects in code, like Entity Framework Core or Dapper. |
+| **OTel**{: #otel } | OpenTelemetry | A vendor-neutral standard and SDK for emitting traces, metrics, and logs from an application. |
 | **PKCE**{: #pkce } | Proof Key for Code Exchange | An OAuth extension that stops stolen authorization codes from being replayed; pronounced "pixy". |
+| **POH**{: #poh } | Pinned Object Heap | A heap segment for objects that must stay at a fixed memory address (e.g. for native interop), kept separate so the rest of the heap can still compact. |
 | **RS256**{: #rs256 } | RSA + SHA-256 signature | An asymmetric token-signing algorithm: the identity provider signs with a private key, your API verifies with the public key. |
 | **SPA**{: #spa } | Single-Page Application | A browser app (React, Angular, Blazor WebAssembly) that talks to APIs instead of reloading pages from a server. |
 | **WPF**{: #wpf } | Windows Presentation Foundation | Microsoft's desktop UI framework for Windows applications. |
 | **XSS**{: #xss } | Cross-Site Scripting | An attack that injects script into your page; any token readable by JavaScript can be stolen through it. |
+
+## Ad tech
+
+| Abbreviation | Full form | What it means |
+| :-- | :-- | :-- |
+| **DSP**{: #dsp } | Demand-Side Platform | Software that represents advertisers, deciding per-impression whether to bid and at what price. |
+| **IAB**{: #iab } | Interactive Advertising Bureau | The ad-industry body that publishes and maintains the OpenRTB specification. |
+| **OpenRTB**{: #openrtb } | Open Real-Time Bidding | The IAB-standardized JSON schema for bid requests and responses that lets any SSP talk to any DSP without custom integrations. |
+| **RTB**{: #rtb } | Real-Time Bidding | The live auction process where ad impressions are bought and sold in the milliseconds between a page loading and an ad rendering. |
+| **SSP**{: #ssp } | Supply-Side Platform | Software that represents publishers, offering their ad inventory to buyers and running (or forwarding to) the auction. |
 
 ## General
 
