@@ -23,6 +23,7 @@
   var synth = window.speechSynthesis;
   var VOICE_KEY = 'tts-voice';
   var RATE_KEY = 'tts-rate';
+  var SCROLL_KEY = 'tts-autoscroll';
   var BAR_COUNT = 28;
   var BLOCK_SEL = 'h1, h2, h3, h4, p, li, blockquote, dt, dd';
   var SKIP_SEL =
@@ -95,9 +96,14 @@
   function matchingVoices() {
     var lang = (document.documentElement.lang || 'en').split('-')[0].toLowerCase();
     return synth.getVoices().filter(function (v) {
-      return v.lang.toLowerCase().indexOf(lang) === 0;
+      return v.lang.toLowerCase().indexOf(lang) === 0 && !NOVELTY_RE.test(v.name);
     });
   }
+
+  /* macOS ships joke/character voices that browsers list alongside real
+     ones - keep the dropdown to standard speech voices only. */
+  var NOVELTY_RE =
+    /^(albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|fred|junior|kathy|ralph|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley)\b/i;
 
   /* Higher score = more natural-sounding, based on known voice families. */
   function voiceScore(v) {
@@ -221,9 +227,11 @@
     readingEl = el;
     if (el) {
       el.classList.add('tts-reading');
-      var r = el.getBoundingClientRect();
-      if (r.top < 80 || r.bottom > window.innerHeight - 80) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (autoScroll) {
+        var r = el.getBoundingClientRect();
+        if (r.top < 80 || r.bottom > window.innerHeight - 80) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       }
     }
     updateProgress();
@@ -239,7 +247,8 @@
 
   /* ---------- UI ---------- */
 
-  var card, playBtn, playIcon, restartBtn, bars, pctLabel, rateSel, voiceSel, volSlider;
+  var card, playBtn, playIcon, restartBtn, bars, pctLabel, rateSel, voiceSel, volSlider, scrollBtn;
+  var autoScroll = localStorage.getItem(SCROLL_KEY) !== '0';
 
   var CSS =
     '#tts-player{background:var(--card-bg);box-shadow:var(--card-shadow);' +
@@ -267,6 +276,9 @@
     '#tts-player select:focus{outline:none;border-color:var(--link-color)}' +
     '#tts-player input[type=range]{flex:none;width:90px;accent-color:var(--link-color)}' +
     '#tts-player .tts-vol-icon{flex:none;font-size:.85rem;color:var(--text-muted-color,gray)}' +
+    '#tts-player .tts-scroll{flex:none;font-size:.9rem;width:1.75rem;height:1.75rem;border-radius:50%;' +
+    'border:1px solid var(--btn-border-color,rgba(128,128,128,.25))}' +
+    '#tts-player .tts-scroll.active{color:var(--link-color);border-color:var(--link-color)}' +
     '.tts-reading{background:rgba(100,149,237,.16);border-radius:.3rem;transition:background .3s}' +
     '.tts-active [data-tts-seg]{cursor:pointer}' +
     '.tts-active [data-tts-seg]:hover{background:rgba(100,149,237,.08);border-radius:.3rem}' +
@@ -293,9 +305,11 @@
   }
 
   function populateVoices() {
-    var voices = matchingVoices().sort(function (a, b) {
-      return voiceScore(b) - voiceScore(a);
-    });
+    var voices = matchingVoices()
+      .sort(function (a, b) {
+        return voiceScore(b) - voiceScore(a);
+      })
+      .slice(0, 10);
     if (!voices.length) return;
     var selected = pickVoice();
     voiceSel.innerHTML = '';
@@ -334,6 +348,9 @@
       '<div class="tts-row">' +
       '<select class="tts-rate" aria-label="Reading speed"></select>' +
       '<select class="tts-voice" aria-label="Voice" hidden></select>' +
+      '<button type="button" class="tts-scroll" title="Auto-scroll to the line being read" ' +
+      'aria-label="Toggle auto-scroll to the line being read" aria-pressed="false">' +
+      '<i class="fas fa-crosshairs" aria-hidden="true"></i></button>' +
       '<i class="fas fa-volume-high tts-vol-icon" aria-hidden="true"></i>' +
       '<input type="range" min="0" max="1" step="0.1" value="1" aria-label="Volume">' +
       '</div>';
@@ -345,6 +362,9 @@
     rateSel = card.querySelector('.tts-rate');
     voiceSel = card.querySelector('.tts-voice');
     volSlider = card.querySelector('input[type=range]');
+    scrollBtn = card.querySelector('.tts-scroll');
+    scrollBtn.classList.toggle('active', autoScroll);
+    scrollBtn.setAttribute('aria-pressed', String(autoScroll));
 
     var wave = card.querySelector('.tts-wave');
     bars = [];
@@ -377,6 +397,16 @@
     voiceSel.addEventListener('change', function () {
       localStorage.setItem(VOICE_KEY, voiceSel.value);
       restartCurrentChunk();
+    });
+    scrollBtn.addEventListener('click', function () {
+      autoScroll = !autoScroll;
+      localStorage.setItem(SCROLL_KEY, autoScroll ? '1' : '0');
+      scrollBtn.classList.toggle('active', autoScroll);
+      scrollBtn.setAttribute('aria-pressed', String(autoScroll));
+      /* jump to the read point right away when turned on mid-listen */
+      if (autoScroll && readingEl) {
+        readingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     });
     volSlider.addEventListener('change', function () {
       volume = parseFloat(volSlider.value);
