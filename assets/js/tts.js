@@ -35,8 +35,19 @@
   var playing = false;
   var paused = false;
   var volume = 1;
-  var rate = parseFloat(localStorage.getItem(RATE_KEY)) || 1;
+  /* Capped at 1.75x - browser voices clip syllables and pitch-warp beyond
+     that, so higher multipliers sound broken rather than fast. */
+  var RATES = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75];
+  var rate = snapRate(parseFloat(localStorage.getItem(RATE_KEY)) || 1);
   var currentUtterance = null;
+
+  /* Snap any value (including ones saved by older versions, e.g. 2) to the
+     nearest supported rate. */
+  function snapRate(r) {
+    return RATES.reduce(function (best, cand) {
+      return Math.abs(cand - r) < Math.abs(best - r) ? cand : best;
+    });
+  }
 
   /* ---------- text extraction ---------- */
 
@@ -346,7 +357,7 @@
       bars.push(b);
     }
 
-    [0.75, 1, 1.25, 1.5, 1.75, 2].forEach(function (r) {
+    RATES.forEach(function (r) {
       var opt = document.createElement('option');
       opt.value = r;
       opt.textContent = r + 'x';
