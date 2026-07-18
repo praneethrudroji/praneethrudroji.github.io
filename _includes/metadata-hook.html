@@ -1,2 +1,6 @@
 <!-- Overrides the theme's empty metadata-hook placeholder to load custom site scripts. -->
-<script defer src="{{ '/assets/js/tts.js' | relative_url }}"></script>
+{%- comment -%}
+  The build timestamp busts the PWA service-worker / browser cache whenever
+  the site is rebuilt, so readers never get a stale player script.
+{%- endcomment -%}
+<script defer src="{{ '/assets/js/tts.js' | relative_url }}?v={{ site.time | date: '%s' }}"></script>
