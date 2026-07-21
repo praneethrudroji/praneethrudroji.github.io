@@ -1,6 +1,6 @@
 ---
 title: Bloom Filters - The Bit Array That Remembers Billions of Impressions Without Storing Any of Them
-description: "Deduplicating ad impressions and frequency-capping at billions-of-events scale means a HashSet is off the table on memory alone. Bloom filters trade a small, tunable false-positive rate for a 20-40x memory win - the math, the C# implementation, and where the trade-off actually bites."
+description: "Deduplicating ad impressions and frequency-capping at billions-of-events scale means a HashSet is off the table on memory alone. Bloom filters trade a small, tunable false-positive rate for a 20-40x memory win - the intuition, the C# implementation, and where the trade-off actually bites."
 date: 2026-07-21 08:00 +0530
 categories: [backend, ad tech]
 tags: [bloom filter, probabilistic data structures, ad tech, deduplication, frequency capping, redis, .net, distributed systems]
@@ -35,34 +35,25 @@ graph LR
 
 Notice what's *not* in the structure: the element itself. You cannot get the original keys back out, and you cannot (in the vanilla version) delete an element, because clearing its bits might also clear a bit that some other element still depends on. Both of these are the price for the memory win, and both matter for how you deploy it in production - more on the deletion problem below.
 
-## The false-positive math, worked with real numbers
+## Why it can lie, and how much that costs you
 
-The false-positive probability, after inserting `n` elements into an `m`-bit array with `k` hash functions, is well approximated by:
+Here's the intuition for where the false positives come from. Every insert flips `k` bits from 0 to 1. As more elements go in, more of the array turns to 1s, and eventually a brand-new element you never inserted can, by pure chance, have all `k` of its positions already set by *other* elements' insertions. That's the false positive - it's a coincidence of collisions, not a bug.
 
-$$p \approx \left(1 - e^{-kn/m}\right)^k$$
+Two dials control how often that coincidence happens: how big the bit array is relative to how many elements you're cramming into it, and how many hash functions (`k`) you use per element. A bigger array means more room before it fills up with 1s. More hash functions means more chances to land on a still-zero bit and bail out early - but push `k` too high and you're setting more bits per insert, which fills the array faster and makes things worse again. There's a sweet spot, and it turns out to have a closed-form answer, but you don't need to derive it by hand - any Bloom filter calculator (or the five-line function in the code below) will spit out the right array size and hash count for a target error rate and expected element count.
 
-Two derived, more useful forms. Given a target false-positive rate `p` and expected element count `n`, the optimal bit-array size is:
+Here's what that trade-off looks like in practice for the frequency-capping scenario: 200 million unique (user, campaign) pairs a day.
 
-$$m = -\frac{n \ln p}{(\ln 2)^2}$$
+| Target false-positive rate | Hash functions (`k`) | Memory needed |
+|---|---|---|
+| 1% | 7 | ~240 MB |
+| 0.1% | 10 | ~360 MB |
+| 0.01% | 13 | ~480 MB |
 
-and the optimal number of hash functions for that `m` and `n` is:
-
-$$k = \frac{m}{n}\ln 2 \approx 0.693 \frac{m}{n}$$
-
-Plugging in the frequency-capping scenario: `n = 200,000,000` unique (user, campaign) pairs per day, target `p = 0.1%` (a false positive rate ad ops signed off on - one in a thousand impressions gets suppressed one impression early, which is invisible in aggregate delivery numbers):
-
-- `m = -200,000,000 * ln(0.001) / (ln 2)^2 ≈ 2.876 billion bits ≈ 359 MB`
-- `k = (m/n) * ln 2 ≈ 14.375 * 0.693 ≈ 10` hash functions
-
-359 MB for 200 million entries versus 10-12 GB for the `HashSet<Guid>` version - roughly a 30x reduction, and that ratio holds regardless of `n` because both numbers scale linearly with element count. The formulas above are the actual sizing exercise you'd run before provisioning this in production: pick `p` based on what error rate the business tolerates, get `m` and `k` out, and that's your memory budget, full stop, no capacity planning surprises later since it doesn't grow with actual key content, only with the `n` you sized for.
+Compare any of those to the 10-12 GB a `HashSet<Guid>` would cost for the same 200 million entries, and you're looking at a 20-40x memory win depending on how tight you want the error bar. For frequency-capping, ad ops usually signs off on the 0.1% row: one impression in a thousand gets suppressed one impression early, which is invisible in aggregate delivery numbers, and 360 MB comfortably fits in a single instance's memory. That's the actual sizing exercise you'd run before provisioning this in production - pick an error rate the business can tolerate, look up (or compute) what memory and hash count that implies, and that's your budget, fixed in advance. It doesn't grow with what's actually inside the filter, only with how many elements you told it to expect.
 
 ## Implementation: double hashing instead of ten real hash functions
 
-Computing 10 genuinely independent hash functions per operation is wasteful. The standard trick (Kirsch-Mitzenmacher) is to compute two independent hashes and derive the rest as a linear combination:
-
-$$h_i(x) = h_1(x) + i \cdot h_2(x) \pmod m, \quad i = 0, 1, \dots, k-1$$
-
-This is provably good enough in practice - the derived hash functions behave as if independent for the purposes of the false-positive bound. Here's a production-shaped C# implementation using two 64-bit hashes from `System.IO.Hashing` (XxHash64 and XxHash3, both fast and already in the BCL as of .NET 6+, no third-party dependency needed):
+Computing 10 genuinely independent hash functions per operation is wasteful. The standard trick (known as Kirsch-Mitzenmacher, after the paper that proved it works) is to compute just two independent hashes, `h1` and `h2`, and cheaply generate the rest from those: the `i`-th hash is just `h1 + i * h2`, wrapped into the array's range with a modulo, for `i` from `0` up to `k - 1`. It sounds like it shouldn't work as well as `k` genuinely independent hash functions, but it's been proven to behave close enough in practice that nobody bothers computing real ones anymore. Here's a production-shaped C# implementation using two 64-bit hashes from `System.IO.Hashing` (XxHash64 and XxHash3, both fast and already in the BCL as of .NET 6+, no third-party dependency needed):
 
 ```csharp
 using System.IO.Hashing;
@@ -176,4 +167,4 @@ Clearing bit positions for a deleted element risks clearing bits that other, sti
 
 ## Where this trade-off actually bites
 
-The honest failure mode worth stating plainly: a Bloom filter sized for `n = 200,000,000` at `p = 0.1%` gets *worse*, not just proportionally but the formula's `e^{-kn/m}` term shows it degrades as an accelerating curve, if the actual element count exceeds what you sized for. Campaign traffic is not flat - a launch day or a programmatic budget reallocation can spike a single campaign's unique-user count well past its provisioned `n`, and unlike a `HashSet` (which just gets slower and uses more memory but stays correct), an under-sized Bloom filter gets *actively wrong* in the direction that erodes the frequency cap's guarantee, showing more false "probably seen" hits and suppressing legitimate impressions. The mitigation is either generous headroom in `n` (oversizing the filter for the 95th-percentile traffic day, not the median one) or a scalable-filter design that adds fresh sub-filters once a fill-ratio threshold is crossed, which is exactly what RedisBloom's `BF.RESERVE ... EXPANSION` option automates rather than something worth hand-rolling.
+The honest failure mode worth stating plainly: a Bloom filter sized for 200 million entries at a 0.1% error rate doesn't just get proportionally worse if the actual element count exceeds what you sized for - it degrades on an accelerating curve, because every extra insertion past the planned-for `n` flips more bits to 1, and each already-flipped bit makes the *next* one more likely to collide too. Campaign traffic is not flat - a launch day or a programmatic budget reallocation can spike a single campaign's unique-user count well past its provisioned size - and unlike a `HashSet` (which just gets slower and uses more memory but stays correct), an under-sized Bloom filter gets *actively wrong* in the direction that erodes the frequency cap's guarantee, showing more false "probably seen" hits and suppressing legitimate impressions. The mitigation is either generous headroom (oversizing the filter for the 95th-percentile traffic day, not the median one) or a scalable-filter design that adds fresh sub-filters once a fill-ratio threshold is crossed, which is exactly what RedisBloom's `BF.RESERVE ... EXPANSION` option automates rather than something worth hand-rolling.
