@@ -9,15 +9,27 @@ mermaid: true
 
 ## The cache made it worse
 
-A team I worked with added Redis in front of a "hot product" lookup that was doing 200 SQL Server round trips a second at peak. Cache hit rate settled at 97%, p99 latency dropped from 40ms to 3ms, everyone moved on. Three weeks later the key for their single best-selling product expired during a flash sale. In the ~80ms it took to recompute it, roughly 14,000 requests arrived for that same key. Every single one missed the cache, because the old value was gone and the new one wasn't written yet. Every single one went to the database, in parallel, for the same query the cache existed to avoid. SQL Server, which had never seen more than 200 qps for this key, now saw 14,000 qps for it in under a second. Connection pool exhausted, query queue backed up, and the resulting timeouts cascaded into retries (the same retry-amplification math from [the resilience post](/posts/timeouts-retries-circuit-breakers-dotnet/)), which added more load to a database that was already drowning. The outage lasted eleven minutes and the root cause line in the postmortem read: "we added a cache."
+A team I worked with put Redis in front of a "hot product" lookup. Before the cache, that lookup was doing about 200 trips to SQL Server per second at peak. After, 97% of reads never reached the database at all, and the slowest 1% of requests went from 40ms down to 3ms. Everyone moved on to the next thing.
 
-That's not irony, it's mechanism. A cache converts a steady trickle of database reads into an all-or-nothing gate: while the key is warm, the database sees near zero of that traffic; the instant it's cold, the database sees all of it, simultaneously. This post covers the three ways to keep the gate warm (cache-aside, write-through, write-behind), the concrete consistency cost of each, the stampede failure mode above and its three real fixes, and why TTL-based invalidation is the wrong tool for correctness-sensitive data.
+Three weeks later, during a flash sale, the cache entry for their single best-selling product hit its expiry time and vanished.
 
-## Three strategies, three different lies you tell the reader
+Recomputing that value took about 80 milliseconds. In those 80 milliseconds, roughly 14,000 requests came in asking for that exact product. All of them looked in the cache. All of them found nothing, because the old copy was gone and the new one hadn't been written yet. So all of them went to the database, at the same time, running the identical query that the cache existed to prevent.
 
-All three answer the same question - "when does the cache get the right value?" - with a different tradeoff between latency, write cost, and how wrong the cache is allowed to be for how long.
+SQL Server had never seen more than 200 requests a second for this thing. It now got 14,000 in under a second. The connection pool ran dry, queries queued up behind each other, requests started timing out, and the callers responded to those timeouts by retrying - which piled even more load onto a database that was already underwater. (That retry pile-on has its own dynamics, which I wrote about in [the timeouts and retries post](/posts/timeouts-retries-circuit-breakers-dotnet/).)
 
-**Cache-aside** (also called lazy loading): the application owns the logic. On read, check the cache; on miss, read the database, then write the result into the cache before returning it. On write, update the database and either delete the cache key or leave it to expire via TTL (time-to-live, how long a cached entry survives before it's considered stale). Nothing is ever written to the cache except as a side effect of a read. This is the default choice for most services because it only caches what's actually requested (no wasted memory on cold data) and the cache is allowed to be absent entirely - if Redis is down, cache-aside degrades to "every read hits the database," which is slow but correct.
+Eleven minutes of downtime. The root cause line in the postmortem read: "we added a cache."
+
+I think about that incident a lot, because the cache wasn't misconfigured and nobody did anything careless. It's just what caches do. A cache turns a steady trickle of database reads into an all-or-nothing gate. While the entry is there, the database sees almost none of that traffic. The moment it's gone, the database sees every bit of it, all at once.
+
+## Three ways to keep a cache in sync
+
+There are three common strategies, and they're all answering the same question: when does the cache get the right value? They just answer it differently, and each one is willing to be wrong in a different way.
+
+**Cache-aside**, sometimes called lazy loading, puts your application in charge. On a read, you check the cache first. If it's not there (a "miss"), you read the database, stash the result in the cache, and return it. On a write, you update the database and then either delete the cache entry or let it expire on its own.
+
+That expiry is the TTL, or time-to-live: the number of seconds a cached entry is allowed to live before the cache throws it away. You set it when you write the entry.
+
+The thing that makes cache-aside the sensible default is that nothing ever gets written to the cache except as a side effect of somebody actually asking for it. You never waste memory on data nobody reads. And the cache is allowed to be completely missing. If Redis falls over, every read just goes to the database instead. Slower, but still correct.
 
 ```csharp
 public async Task<Product> GetProductAsync(int productId, CancellationToken ct)
@@ -38,9 +50,11 @@ public async Task<Product> GetProductAsync(int productId, CancellationToken ct)
 }
 ```
 
-The consistency cost: between a write to the database and the next cache miss, readers can see stale data for up to the TTL. That staleness window is the price of every cache-aside deployment - it is never zero unless you invalidate explicitly on write.
+What you pay for that: between the moment somebody writes to the database and the moment the cache entry expires, readers get the old value. If your TTL is ten minutes, your data can be ten minutes out of date. That gap doesn't go away on its own. The only way to close it is to explicitly delete the cache entry when you write, which I'll come back to later.
 
-**Write-through**: the write path goes through the cache, which writes to the database itself (or the two are updated together as one operation) before the write is acknowledged. Every write keeps the cache warm, so reads almost never miss for recently-written data. The cost is write latency - every write now pays for both the cache round trip and the database round trip, synchronously - and you're caching data whether or not anyone reads it.
+**Write-through** flips the write path around. Writes go through the cache, and the cache (or your code, wrapping both) updates the database before telling the caller "done." Because every write refreshes the cache on its way past, a read that follows a write almost never misses.
+
+You pay for that in write speed. Every write now waits on both the cache and the database, one after the other. And you end up caching things whether or not anybody ever reads them.
 
 ```csharp
 public async Task UpdatePriceAsync(int productId, decimal newPrice, CancellationToken ct)
@@ -58,15 +72,29 @@ public async Task UpdatePriceAsync(int productId, decimal newPrice, Cancellation
 }
 ```
 
-The consistency cost here is different from cache-aside's: if the process crashes between the database commit and the cache update, the cache holds a stale value with no TTL pressure forcing a refresh soon - so write-through still needs a TTL as a backstop, it just needs one far less often in practice.
+Notice the order in that code. The cache only gets updated after the database commit succeeds, never before. If you write the cache first and the database write then fails, you've just published a value that doesn't exist anywhere real.
 
-**Write-behind** (write-back): the write lands in the cache and is acknowledged immediately; a background process asynchronously flushes it to the database on a delay or batch schedule. This is the fastest write path by far - the caller never waits on the database - and it's the right shape for high-frequency counters (view counts, rate-limit buckets, leaderboard scores) where losing the last few seconds of updates on a crash is an acceptable cost. It is close to never the right shape for anything with a "the money has to be there" requirement: if the cache node dies before the flush, those writes are gone, full stop, and there's no WAL (write-ahead log) or transaction log to replay them from, because the database - the thing with the durability guarantees - never saw them.
+There's still a gap, though it's a smaller one than cache-aside's. If the process dies in between the database commit and the cache update, the cache is left holding an old value and nothing is pushing it to refresh. So write-through wants a TTL too, as a safety net. It just needs to lean on it far less often.
 
-The one-line summary that's worth memorizing: cache-aside trades read latency for a bounded staleness window, write-through trades write latency for a nearly-always-warm cache, write-behind trades durability for the fastest possible write. None of them are "the fast one" in isolation - each is fast at a different operation and pays for it somewhere else.
+**Write-behind**, also called write-back, is the aggressive one. The write goes into the cache and you tell the caller "saved" immediately. A background job flushes it to the database later, on a timer or in batches.
 
-## The stampede: why a cache miss under load is worse than no cache
+This is by far the fastest write path, because the caller never waits for the database at all. It's a genuinely good fit for high-frequency counters: view counts, rate-limit buckets, leaderboard scores. Things where losing the last few seconds of updates in a crash is annoying but survivable.
 
-The opening story generalizes into a named failure mode: **cache stampede** (also called dogpiling or the thundering herd problem). The mechanism is simple and that's exactly why it's easy to miss in design review: a cache absorbs N requests/second into roughly zero database load while warm, so nobody sizes the database for N. The moment the key goes cold - TTL expiry, eviction under memory pressure, or a cold deploy - every one of those N requests/second (times however many seconds it takes to recompute the value) executes the cache-miss path at once. If recompute takes 80ms and traffic is 14,000 req/s for that key, roughly 1,100 requests execute the exact same expensive query concurrently before the first one finishes and repopulates the cache. A database that was doing zero work for this query a moment ago now gets over a thousand identical, redundant executions in parallel. Without a cache at all, the database would only ever have seen the steady 14,000 req/s, spread out - which is exactly the load profile it would have been provisioned for. The cache didn't reduce peak load, it deferred it and then delivered it as a burst.
+It is almost never right for anything involving money or entitlements. If the cache node dies before the flush happens, those writes are simply gone. There's nothing to replay them from, because the database - the component that actually has durability guarantees - never saw them in the first place.
+
+Here's the short version of all three. Cache-aside gives you fast reads and accepts that data can be stale for a while. Write-through gives you a cache that's almost always current and accepts slower writes. Write-behind gives you the fastest possible write and accepts that you might lose some. None of them is "the fast one" - each is fast at a different thing and pays for it somewhere else.
+
+## The stampede: when a cache miss is worse than no cache
+
+That opening story has a name: a **cache stampede**. You'll also see it called dogpiling, or the thundering herd.
+
+The mechanism is simple, which is exactly why it slips past design reviews. While the cache entry is warm, it soaks up all the traffic for that key, and the database sees essentially none of it. So nobody ever sizes the database for that traffic. Why would they? It never arrives.
+
+Then the entry goes away. Maybe the TTL expired, maybe Redis evicted it because it was running low on memory, maybe you just deployed and the cache is cold. Whatever the reason, every request that would have been absorbed now takes the miss path instead, and they all take it at the same moment.
+
+Run the numbers from the incident. Recomputing takes 80ms, and traffic is 14,000 requests a second for that one key. That's roughly 1,100 requests all firing the same expensive query before the very first one finishes and writes the answer back. The database was doing zero work for this query a second ago. Now it's running eleven hundred identical copies of it, in parallel.
+
+The part I find genuinely uncomfortable: without the cache, the database would have seen a steady 14,000 requests a second, spread evenly, which is the load it would have been provisioned for in the first place. The cache didn't lower the peak. It postponed it and then delivered it as a spike.
 
 ```mermaid
 sequenceDiagram
@@ -91,9 +119,11 @@ sequenceDiagram
     Note over C2: most of these already timed out<br/>and are being retried by their callers
 ```
 
-Three fixes, and they compose:
+There are three fixes, and the nice thing is you can use all three together.
 
-**Request coalescing / single-flight**: when a key is missing, only the first caller is allowed to go to the database; everyone else who asks for the same key while that fetch is in flight waits on the *same* result instead of starting their own query. This is the single highest-leverage fix because it caps concurrent database load per key at exactly 1, regardless of how many callers are waiting. In a single process, a keyed semaphore does this cheaply:
+**Single-flight**, also called request coalescing, is the big one. When an entry is missing, only the first caller gets to go to the database. Everyone else who asks for that same key while the fetch is in progress just waits for that one result instead of starting their own query.
+
+It's the highest-leverage fix because it caps the database load for a given key at exactly one query, no matter how many callers are piled up behind it. Inside a single process, a semaphore per key does the job cheaply:
 
 ```csharp
 public sealed class SingleFlightCache
@@ -139,9 +169,13 @@ public sealed class SingleFlightCache
 }
 ```
 
-That double-checked-lock shape (check, acquire gate, check again) is deliberate: without the second check, every waiter would still run its own database query the instant the gate releases, one after another - correct but pointless serialized load. With it, only the first caller ever touches the database; the rest read the value it just wrote. The caveat: a `SemaphoreSlim` here only coalesces requests *within one process*. Across a fleet of 20 pods, you still get up to 20 concurrent database hits (one per pod) instead of 14,000 - a massive improvement, but if you need to cap it at exactly 1 across the whole fleet, that's a distributed lock (`SET key value NX PX 5000` in Redis is the standard pattern) instead of an in-memory semaphore.
+That check-then-lock-then-check-again shape is the part people leave out, and it matters. Without the second check, every waiter wakes up when the gate opens and runs its own database query anyway, just one at a time instead of all at once. Still correct, still pointless. With the second check, the first caller does the work and everyone else reads what it just wrote.
 
-**Jittered TTLs**: if you seed a cache by warming 500 keys in a loop with the same 10-minute expiration, all 500 expire within the same millisecond ten minutes later, and you've manufactured a synchronized stampede across 500 keys instead of one. The fix costs one line: add randomness to the expiration so keys decorrelate.
+One important limit: `SemaphoreSlim` lives in memory, so it only coalesces requests inside one process. If you're running 20 pods, you'll get up to 20 database hits instead of 14,000. That's still a huge win and honestly good enough most of the time. If you truly need exactly one across the whole fleet, you want a distributed lock instead, which in Redis usually means `SET key value NX PX 5000`.
+
+**Jittered TTLs** fix a problem you create for yourself. Say you warm the cache at startup by looping over 500 keys and giving each a 10-minute expiry. Ten minutes later, all 500 expire within the same millisecond of each other. You've just built a synchronized stampede across 500 keys instead of one.
+
+The fix is one line. Add a little randomness so the expiries drift apart:
 
 ```csharp
 var jitter = TimeSpan.FromSeconds(Random.Shared.Next(0, 60)); // up to 1 min of spread
@@ -149,9 +183,11 @@ await _cache.SetStringAsync(cacheKey, value,
     new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10) + jitter }, ct);
 ```
 
-This is the same decorrelation idea as jittered retry backoff from [the timeouts and retries post](/posts/timeouts-retries-circuit-breakers-dotnet/) - synchronized clients (or, here, synchronized key expirations) turn a fixed schedule into a coordinated wave; jitter smears the wave into something the database can absorb.
+This is the same idea as adding jitter to retry delays, which comes up in [the timeouts and retries post](/posts/timeouts-retries-circuit-breakers-dotnet/). Anything on a fixed schedule eventually lines up into a wave. A bit of randomness smears the wave into something the database can actually absorb.
 
-**Probabilistic early expiration**: instead of waiting for a key to fully expire and letting whichever request happens to arrive first pay the full recompute latency under contention, let requests *near* the expiry time probabilistically decide to refresh early, before anyone is blocked on a miss. The well-known approach (XFetch, from research at Facebook) recomputes with a probability that rises as the true expiry approaches, weighted by how long the last recompute took - so a value that's expensive to rebuild starts getting proactively refreshed further ahead of its deadline than a cheap one. A simplified version:
+**Early refresh** is the third fix, and it's the one that stops misses from happening at all. Instead of waiting for an entry to fully expire and letting whoever arrives first eat the full recompute time while everyone queues behind them, you let requests that arrive *near* the expiry decide, at random, to refresh it early.
+
+The trick is that the odds go up as the deadline gets closer, and they're weighted by how expensive the last recompute was. Something slow to rebuild starts getting refreshed further ahead of time than something cheap. The published version of this is called XFetch, out of research at Facebook. Here's a stripped-down take:
 
 ```csharp
 // XFetch: probabilistically refresh before expiry, weighted by how long
@@ -168,13 +204,21 @@ bool ShouldRefreshEarly(DateTimeOffset now, DateTimeOffset expiresAt, TimeSpan l
 }
 ```
 
-In practice this is easier to reason about as a rule than as that formula: store the recompute cost alongside the value, and once you're within roughly `delta` of expiry, let a small and rising fraction of requests trigger a background refresh (serving the still-valid cached value to the caller while the refresh happens) instead of all requests waiting for a hard expiry. Combined with single-flight so only one of those "early" requests actually performs the refresh, this eliminates the miss-driven stampede entirely - the cache is refreshed while it's still warm, so no request ever sees a true miss for a hot key under normal operation.
+Don't get stuck on the formula. The rule behind it is easy enough: store how long the last recompute took alongside the value, and once you're getting close to expiry, let a small and growing share of requests kick off a background refresh. Those requests still get served the cached value immediately, because it hasn't actually expired yet. They just also trigger the rebuild.
 
-## Invalidation is the hard problem, not caching itself
+Pair this with single-flight so only one of those early requests does the actual work, and the miss-driven stampede goes away completely. The entry gets refreshed while it's still warm, so under normal traffic no request ever hits a true miss on a hot key.
 
-There's an old line about there being exactly two hard problems in computer science: naming things and cache invalidation. It holds up because TTL-based expiry is not actually invalidation, it's a timer - the cache is guaranteed wrong for up to the TTL after every write, and you're picking that number by guessing at an acceptable staleness window rather than by any correctness argument. For a product description, a five-minute-stale read is a shrug. For an account balance, an entitlement flag, or a fraud-risk score, "wrong for up to five minutes" is a bug with a customer's name on it.
+## Invalidation is the hard part
 
-The cleaner pattern for correctness-sensitive data is to invalidate the cache from the same place that knows the data actually changed: the database's own change stream. [SQL Server's Change Data Capture](/posts/change-data-capture-in-sql-server/) (CDC) already tails the transaction log and turns row-level DML into a queryable, ordered record of what changed. Wire that into a Kafka topic and have a small consumer delete (not update - delete, so the next reader repopulates from the source of truth rather than trusting a second hand-rolled write path) the corresponding cache key the moment the change lands:
+There's an old joke that there are only two hard problems in computer science: naming things and cache invalidation. It stays funny because a TTL isn't really invalidation. It's a timer.
+
+Think about what a TTL actually promises. After any write, your cache is guaranteed to be wrong for up to the full TTL, and you picked that number by guessing at how stale you could stand to be. There's no correctness argument in there anywhere.
+
+For a product description, five minutes stale is a shrug. For an account balance, a feature entitlement, or a fraud score, "wrong for up to five minutes" is a bug with a specific customer's name attached to it.
+
+When correctness matters, the better move is to invalidate from the place that actually knows the data changed: the database's own change stream. [SQL Server's Change Data Capture](/posts/change-data-capture-in-sql-server/) reads the transaction log and turns every insert, update, and delete into an ordered record you can consume. Push that into a Kafka topic, and have a small consumer drop the matching cache entry the moment a change arrives.
+
+Note that it deletes rather than updates. That's deliberate. Deleting means the next reader goes and fetches from the source of truth, instead of you maintaining a second hand-written path that builds the cached value and hoping it stays in agreement with the first one.
 
 ```csharp
 // Kafka consumer processing CDC change events (e.g. via Debezium's SQL Server connector)
@@ -188,8 +232,22 @@ await foreach (var change in changeStream.ConsumeAsync(ct))
 }
 ```
 
-This turns staleness from "up to N minutes, hope N is small enough" into "up to however long the CDC pipeline takes to deliver an event," which is typically low single-digit seconds and, critically, is driven by an actual write happening rather than an arbitrary clock. It composes with everything above: the delete just makes the next read a normal cache-aside miss, so it still benefits from single-flight and jitter if that key is hot. It's more moving parts than a TTL, which is exactly why it should be reserved for data where staleness has a real cost, not applied everywhere by default.
+This changes staleness from "up to N minutes, and I hope N is small enough" into "however long it takes an event to travel the pipeline." In practice that's usually a couple of seconds, and more importantly it's driven by a real write happening rather than by an arbitrary clock.
 
-## Choosing among the three isn't really about speed
+It also plays nicely with everything above. The delete just turns the next read into an ordinary cache-aside miss, so single-flight and jitter still apply if that key is hot.
 
-Every one of these patterns can be made fast; that was never the hard part. Cache-aside is the right default because it's the only one of the three that degrades gracefully when the cache itself is unavailable - it just becomes slower, not wrong. Write-through earns its keep when read-after-write consistency matters more than write latency, such as a page that immediately re-reads what it just saved. Write-behind belongs in a narrow lane of high-frequency, loss-tolerant counters, and reaching for it anywhere durability matters is choosing speed you didn't need at a cost you can't take back. Layered on top of whichever strategy you pick, the stampede protections - single-flight, jittered TTLs, early refresh - aren't optional hardening for later; they're the difference between a cache that smooths load and one that, on its worst day, focuses your entire traffic spike into a single database query fired ten thousand times in parallel. And for the subset of your data where being wrong is expensive, invalidate on the write itself rather than betting on a timer - the database already knows when it changed, so let it tell the cache instead of making the cache guess.
+It's obviously more machinery than a TTL. That's the reason to save it for data where being stale actually costs something, rather than rolling it out everywhere by default.
+
+## So which one should you use?
+
+All three of these can be made fast. Speed was never the interesting part of the decision.
+
+Cache-aside is the right default, and the reason is what happens when things break. It's the only one of the three that degrades gracefully when the cache itself is down. You get slower, not wrong.
+
+Write-through earns its place when someone needs to read back what they just wrote and see it immediately, and you'd rather pay for that on the write side.
+
+Write-behind lives in a narrow lane: high-volume counters where losing a few seconds is fine. Reaching for it anywhere durability matters is buying speed you didn't need at a price you can't refund.
+
+Whichever one you pick, add the stampede protections. Single-flight, jittered TTLs, early refresh. I'd argue these aren't hardening you get to do later, because they're the difference between a cache that smooths out load and a cache that, on its worst day, concentrates your entire traffic spike into one query fired ten thousand times at once.
+
+And for the slice of your data where being wrong is expensive, invalidate on the write instead of betting on a timer. The database already knows exactly when something changed. Let it tell the cache rather than making the cache guess.

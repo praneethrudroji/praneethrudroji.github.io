@@ -29,7 +29,7 @@ In a log:
 - Consumers do not take messages; they **read at a position** (an offset) that they control.
 - Ten independent applications can read the same topic fully, each at their own pace, without configuring anything on the broker for fan-out.
 
-The practical consequence is the killer feature: **replay**. A bug in your consumer corrupted a week of downstream data? Reset the consumer's offset to a week ago and reprocess. In a queue, those messages are gone; your recovery story is a database restore and an apology. In ad-tech pipelines where a pricing bug can misattribute a few hundred million events, replay is not a nice-to-have - it is the reason the architecture survives its own bugs.
+The practical consequence is the killer feature: **replay**. A bug in your consumer corrupted a week of downstream data? Reset the consumer's offset to a week ago and reprocess. In a queue, those messages are gone; your recovery story is a database restore and an apology. In ad-tech pipelines, where a pricing bug can misattribute a few hundred million events, replay isn't a nice-to-have. It's the reason the architecture survives its own bugs.
 
 The cost is that the broker no longer tracks per-message state for you. There is no per-message acknowledgement, no built-in dead-lettering, no visibility timeout. Everything a queue does for you per message, you now do yourself per offset. That trade is worth it for high-volume streams and worth avoiding for low-volume work queues - more on that choice in [Choosing a Cloud Messaging Backbone](/posts/choosing-a-cloud-messaging-backbone/).
 

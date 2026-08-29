@@ -103,4 +103,4 @@ Assembled, the pipeline for one dependency reads outside-in: total timeout → r
 
 And underneath all of it, the boring foundation the patterns assume: async calls fan out and time out only if you *await* correctly ([async/await pitfalls](/posts/async-await-pitfalls-in-csharp/)), and messaging paths get their resilience from at-least-once + idempotency + dead-letter queues ([DLQ](/glossary/#dlq)) rather than synchronous heroics - often the strongest resilience move of all is making the call [asynchronous and therefore retryable offline](/posts/microservice-boundaries-data-ownership/).
 
-The test of the posture is not whether each policy exists - it is whether you can answer, for every dependency: *what happens here when this is down, and what does the user see?* If the answer involves the words "hopefully" or "should just," the next incident will grade the homework for you.
+The real test isn't whether each policy exists on paper. It's whether you can answer, for every dependency: *what happens here when this is down, and what does the user see?* If the answer involves the words "hopefully" or "should just," the next incident will grade the homework for you.

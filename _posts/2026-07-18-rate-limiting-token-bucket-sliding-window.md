@@ -9,7 +9,9 @@ mermaid: true
 
 ## The limiter that passed every load test and still let the burst through
 
-A service sets a limit of 100 requests/minute per API key, tests it with a script that fires 100 requests and confirms the 101st gets a 429, ships it, and moves on. Weeks later a client's retry loop manages to push 197 requests through in under a second, against a limit that is supposed to cap them at 100 *per minute*. Nothing in the code is broken. The counter incremented correctly, the reset happened on schedule, every individual decision was right. The algorithm itself has a hole, and it is shaped exactly like a clock.
+A service sets a limit of 100 requests a minute per API key. It gets tested with a script that fires 100 requests, confirms the 101st gets rejected, and ships. Weeks later, a client's retry loop manages to push 197 requests through in under a second, against a limit supposed to cap it at 100 per minute.
+
+Nothing here is actually broken. The counter incremented correctly, the reset happened right on schedule, every individual decision the code made was correct. The algorithm itself has a hole, and the hole is shaped exactly like a clock.
 
 This is the **fixed window counter**, and it is where almost every rate limiter starts because it is trivial to reason about: pick a window size (say 60 seconds), keep a count, reset the count when the window rolls over.
 
@@ -37,7 +39,9 @@ public class FixedWindowLimiter
 }
 ```
 
-Walk the clock past a window boundary and the flaw is obvious. A client sends 100 requests at 11:59:59 - all land in the `11:59:00-11:59:59` window, all allowed, counter hits exactly 100. One second later, at 12:00:00, the window rolls over to `12:00:00-12:00:59` and the counter resets to zero. The same client sends 100 more requests at 12:00:00 - also allowed, because as far as this counter is concerned it is a brand new minute with a clean slate. The result: **197-ish requests in roughly a one-second span**, against a limit whose entire point was "no more than 100 requests in any 60-second span." The counter never lied about anything it measured. It measured the wrong thing - calendar-aligned buckets instead of a rolling window relative to *now*.
+Walk the clock past a window boundary and the flaw is obvious. A client sends 100 requests at 11:59:59. All of them land inside the 11:59:00-11:59:59 window, all get allowed, and the counter hits exactly 100. One second later, at 12:00:00, the window rolls over and the counter resets to zero. The same client sends 100 more requests right at 12:00:00, and every one of those gets allowed too, because as far as this counter is concerned it's a brand new minute with a clean slate.
+
+The result: roughly 197 requests in about a one-second span, against a limit whose entire purpose was "no more than 100 requests in any 60-second span." The counter never lied about what it measured. It just measured the wrong thing, calendar-aligned buckets instead of a window that actually rolls with the current moment.
 
 ```mermaid
 sequenceDiagram
@@ -52,7 +56,7 @@ sequenceDiagram
     Note over C,L: ~197 requests delivered inside a 1-second span,<br/>limit was "100 per 60 seconds"
 ```
 
-That is not a rare edge case a fuzzer found. It is the *default behavior* every time traffic happens to bunch up near a minute boundary, which for anything bursty (retry storms, cron-triggered clients, a mobile app waking up on a timer) is often. The fix space is three algorithms, each trading off memory, precision, and how bursty they let you be, plus a fourth problem - making any of them correct once you have more than one app instance - that catches people who solved the algorithm and forgot the infrastructure.
+This isn't some rare edge case a fuzzer happened to find. It's the default behavior every single time traffic bunches up near a minute boundary, which for anything bursty (retry storms, cron-triggered clients, a mobile app waking up on a timer) happens often. There are three algorithms that fix this, each trading off memory, precision, and how much burst they'll tolerate, plus a fourth problem worth knowing about: making any of them correct once you have more than one app instance, which is exactly the part people forget after they've solved the algorithm.
 
 ## Sliding window log: exact, and it remembers everything
 
@@ -73,7 +77,9 @@ else
 end
 ```
 
-This is exactly correct - no boundary case, no approximation. The cost is that "store every timestamp" is a literal instruction, not a figure of speech. Rate-limit 500,000 active users at 100 requests/minute each, and in the worst case (everyone at their limit simultaneously) you are holding 50 million sorted-set entries. A Redis sorted set entry runs somewhere around 80-100 bytes once you account for the skip-list pointers and the member string itself - conservatively that is **4-5 GB of memory spent purely on rate-limit bookkeeping**, for state that exists only to answer "how many, recently." That is a real operational cost, not a rounding error, and it is why the sliding window log is the algorithm you reach for when correctness at the boundary genuinely matters (billing-adjacent limits, abuse detection) and reach past otherwise.
+This is exactly correct. No boundary case, no approximation. The cost is that "store every timestamp" is a literal instruction, not a figure of speech. Rate-limit 500,000 active users at 100 requests a minute each, and in the worst case, everyone hitting their limit at the same time, you're holding 50 million sorted-set entries. A Redis sorted-set entry runs somewhere around 80 to 100 bytes once you account for its internal overhead, so conservatively that's 4 to 5 GB of memory spent purely on rate-limit bookkeeping, for state that only exists to answer "how many, recently."
+
+That's a real operational cost, not a rounding error, which is why the sliding window log is the algorithm you reach for when correctness at the boundary genuinely matters (billing-adjacent limits, abuse detection) and reach past for everything else.
 
 ## Sliding window counter: the practical compromise
 
@@ -89,7 +95,9 @@ Worked example: limit is 100/minute. The previous window (11:59:00-11:59:59) end
 weighted_count = 20 + 90 * (1 - 0.25) = 20 + 67.5 = 87.5
 ```
 
-87.5 is under 100, so the request is allowed - and correctly so, because a client that front-loaded 90 requests in the last quarter-second of the previous window and 20 more just after the boundary really did send something close to 110 requests in a 15-second span, and the weighting reflects that instead of pretending the previous window never happened. It is an approximation (it assumes requests were spread evenly through the previous window, which is not always true), but the error is bounded and small in practice, and the state per key is two integers plus a timestamp instead of a growing list. This is the compromise most production rate limiters (including the sliding-window mode in Cloudflare's and Amazon API Gateway's limiters) actually ship, because "close enough, cheap, no boundary cliff" beats "exact, expensive" for the overwhelming majority of endpoints.
+87.5 is under 100, so the request gets allowed, and correctly so. A client that front-loaded 90 requests into the last quarter-second of the previous window and sent 20 more right after the boundary really did send something close to 110 requests in a 15-second span, and this weighting reflects that instead of pretending the previous window never happened.
+
+It's an approximation, since it assumes requests were spread evenly across the previous window, which isn't always true. But the error stays small and bounded in practice, and the state you need per key is two integers and a timestamp instead of a growing list. This is the compromise most production rate limiters actually ship, including the sliding-window modes in Cloudflare's and Amazon API Gateway's limiters, because "close enough, cheap, no boundary cliff" beats "exact but expensive" for the overwhelming majority of endpoints.
 
 ## Token bucket: bursts are allowed, on purpose
 
@@ -184,7 +192,9 @@ await db.StringIncrementAsync(key); // separate round-trip, separate opportunity
 return RateLimitResult.Allowed;
 ```
 
-Two instances handling concurrent requests both read `count = 99` before either has written back. Both conclude "99 < 100, allow it," both increment, and the limit of 100 just let through 101 - and under real load, with tens of instances and thousands of requests per second, the overshoot is not one request, it is however many concurrent readers land in the same gap. The fix is the same one that shows up anywhere shared mutable state meets concurrent writers: collapse read-check-write into a single atomic operation. Redis's `EVAL` runs a Lua script atomically relative to every other command the server processes, which makes it the natural place to put "increment, and tell me if the pre-increment value already reset the TTL":
+Two instances handling concurrent requests both read `count = 99` before either one has written anything back. Both conclude "99 is under 100, allow it," both increment, and a limit of 100 just let through 101. Under real load, with tens of instances and thousands of requests a second, the overshoot isn't one stray request, it's however many concurrent readers happened to land in that same gap.
+
+The fix is the same one that shows up anywhere shared mutable state meets concurrent writers: collapse the read, check, and write into one atomic operation. Redis's `EVAL` runs a Lua script atomically relative to every other command the server is processing, which makes it the natural place to put "increment, and tell me whether that pushed us over the limit":
 
 ```lua
 -- KEYS[1] = rate limit key, ARGV[1] = limit, ARGV[2] = window (seconds)

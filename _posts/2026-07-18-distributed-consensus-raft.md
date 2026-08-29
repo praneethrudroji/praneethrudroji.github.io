@@ -7,33 +7,61 @@ tags: [raft, consensus, distributed systems, kafka, kraft, etcd, leader election
 mermaid: true
 ---
 
-## The outage that two leaders cause
+## Two servers, both certain they're in charge
 
-Picture a 3-node service that replicates a config store: one node is "primary," the other two are "replicas," and a client always writes to whoever currently answers to `/is-leader = true`. A network partition splits the cluster - node A is cut off from B and C, but A can still see clients on its side of the split. A was the primary before the partition. It has no idea it is now cut off; its heartbeat to itself never fails. So A keeps accepting writes.
+The worst version of this bug is the one where nothing looks broken.
 
-Meanwhile B and C, no longer hearing from A, do the sensible-looking thing: they elect a new primary among themselves, say B. B also starts accepting writes.
+You've got three servers holding a config store. One is the primary, the other two are replicas, and clients write to whichever one currently reports `/is-leader = true`. Simple, and it works fine for months.
 
-Now you have two nodes, each fully convinced it is the one true primary, each accepting writes from clients that can still reach them. This is **split-brain**, and it is not a rare edge case - it is the default outcome of "pick a leader and have it coordinate" the instant you add a network that can partition, which is every network. Both A's and B's write histories look locally consistent. Neither node can tell, from its own log, that the other exists and has diverged. When the partition heals, you have two histories that disagree about what happened, and no principled way to merge them - you pick one and silently discard the other, or you page someone at 3 a.m. to reconcile transactions by hand.
+Then the network hiccups. Server A gets cut off from B and C, but clients on A's side of the split can still reach it. A was the primary before the split, and here's the problem: A has no way to know anything changed. Its own health check still passes. So it keeps taking writes.
 
-The fix is not "detect two leaders and shut one down" - by the time you can detect it, damage is already committed. The fix has to make it *structurally impossible* for two nodes to both believe they can accept writes at the same time, even though nodes can't directly observe each other's state and messages can be arbitrarily delayed or lost. That is what **consensus algorithms** solve, and Raft is the one most engineers now meet without realizing it: it is the algorithm inside etcd (which is what Kubernetes leader election and its entire cluster state actually run on), inside Kafka's KRaft mode, inside CockroachDB and Cosmos DB's underlying replication, and inside HashiCorp Consul.
+Meanwhile B and C stop hearing from A and do the reasonable thing - they pick a new primary between themselves, say B. B starts taking writes too.
+
+Now two servers are each completely convinced they're the one in charge, and each is accepting real customer writes. This is called **split-brain**.
+
+The thing that makes it nasty is that from the inside, both look healthy. A's history is perfectly consistent with itself. So is B's. Neither one can look at its own data and tell that another server exists and has drifted away from it.
+
+When the network heals, you've got two versions of what happened and no principled way to combine them. You either pick one and quietly throw away the other, or you wake somebody up at 3 a.m. to reconcile transactions by hand.
+
+You can't fix this by detecting two leaders and shutting one down, because by the time you can detect it, the bad writes have already happened. The fix has to make it structurally impossible for two servers to believe they can accept writes at the same time - and it has to work even though servers can't see inside each other and messages can be delayed or dropped for arbitrarily long.
+
+That's what **consensus algorithms** are for. Raft is the one most of us are already running without thinking about it: it's inside etcd (which is where all of Kubernetes' cluster state lives), inside Kafka's KRaft mode, inside CockroachDB and Cosmos DB's replication, and inside HashiCorp Consul.
+
+Fair warning before we go further: this post assumes you're comfortable with the idea of servers replicating data to each other over a network that can fail. You don't need any prior distributed systems theory. I'll define the jargon as it comes up.
 
 ## What consensus actually promises
 
-A consensus protocol lets a cluster of nodes agree on a single, ordered sequence of values (think: an append-only log) even when some nodes crash or the network drops and delays messages, as long as a **majority** of nodes are up and can talk to each other. The promise is narrow and easy to state, and that narrowness is the whole point:
+A consensus protocol lets a group of servers agree on one ordered list of values - think of an append-only log - even when some of them crash and the network drops or delays messages. The catch is that it only works as long as a **majority** of the servers are up and able to talk to each other.
 
-- At most one leader can be recognized by a majority at any given time.
-- Once a majority of nodes have durably stored a log entry, that entry is permanent - it will never be silently overwritten or lost, even if the leader that wrote it crashes one millisecond later.
-- A minority partition can keep running, but it can never commit anything new. It is deliberately unavailable rather than risk disagreeing with the majority.
+Majority just means more than half. Two out of three. Three out of five. That's it, no deeper meaning.
 
-That last bullet is the part people find counterintuitive on first read. A protocol that makes part of the cluster refuse to do its job sounds like a bug. It is the entire mechanism. Availability is being traded, on purpose, for the guarantee that "committed" means committed - the same trade-off you already accept every time you set `min.insync.replicas=2` in Kafka and let the broker reject writes rather than accept them into a single fragile copy, a pattern covered in [Kafka for Engineers Who Know Databases](/posts/kafka-for-engineers-who-know-databases/). Raft just applies that idea to leader election itself, not only to data replication.
+The promise itself is short:
 
-## Terms: a logical clock for "which election are we talking about"
+- At most one leader can be recognized by a majority at any moment.
+- Once a majority of servers have written an entry to disk, it's permanent. It won't be silently overwritten or lost, even if the leader that wrote it dies a millisecond later.
+- A group that finds itself in the minority side of a split keeps running, but it can't commit anything new. It goes unavailable on purpose rather than risk disagreeing with the majority.
 
-Raft divides time into **terms** - monotonically increasing integers, starting at 0. Each term has at most one leader. A node keeps a `currentTerm` field and attaches it to every message it sends. The rule that makes terms useful: **whenever a node sees a term number higher than its own, it immediately updates its own term and steps down to follower**, no matter what it currently believes about itself.
+That last one trips people up. A protocol that makes part of your cluster deliberately refuse to work sounds like a defect.
 
-This single rule is what kills split-brain. Suppose node A is leader in term 5. A partition isolates it. B and C time out waiting for A's heartbeat, and C starts an election for term 6, wins a majority (B and C, which is 2 of 3 - a majority), and becomes leader of term 6. When the partition heals and A finally reconnects and sends a heartbeat claiming to be leader of term 5, B and C reject it - term 5 is stale. Worse for A: the moment A receives *any* message tagged with term 6, A sees a higher term than its own `currentTerm = 5`, and steps down to follower immediately. A cannot resume being leader; it does not get a vote on whether it should. The term number alone settles it.
+It's the actual mechanism, though. You're trading availability, knowingly, for the guarantee that "committed" means committed. If you've ever set `min.insync.replicas=2` in Kafka and let the broker reject writes rather than accept them into one fragile copy, you've already made this exact trade. (More on that in [Kafka for Engineers Who Know Databases](/posts/kafka-for-engineers-who-know-databases/).) Raft applies the same idea to choosing a leader, not just to copying data.
 
-This is why a term functions as a logical clock rather than a wall-clock timestamp: nodes never need synchronized clocks (a notoriously hard distributed-systems problem) to agree on ordering - they only need to compare two integers.
+## Terms: a counter that settles every argument
+
+Raft chops time into **terms**. A term is just a number that only ever goes up, starting at 0. Each term gets at most one leader.
+
+Every server keeps its own `currentTerm` and stamps it on every message it sends. And there's one rule that does an enormous amount of work:
+
+**When a server sees a term number higher than its own, it immediately adopts that term and demotes itself to follower.** No exceptions, no matter what it thought it was a moment ago.
+
+That single rule is what kills split-brain. Walk through it.
+
+Server A is leader in term 5, and a network split isolates it. B and C stop hearing from A, so C starts an election for term 6. It wins votes from B and itself - two out of three, a majority - and becomes leader of term 6.
+
+The split heals. A reconnects and confidently sends a heartbeat saying it's the leader of term 5. B and C reject it outright, because term 5 is old news.
+
+Worse for A: the instant it receives *any* message stamped term 6, it sees a number bigger than its own 5 and steps down on the spot. A doesn't get a say in the matter. Comparing two integers settles it.
+
+This is why the term acts like a clock without actually being one. Servers never need their wall clocks synchronized, which is famously hard to pull off, because ordering is decided by comparing integers instead.
 
 ```mermaid
 stateDiagram-v2
@@ -48,15 +76,17 @@ stateDiagram-v2
 
 Every node is always in exactly one of these three states. Followers are passive - they only respond to RPCs (remote procedure calls, the request/response messages nodes send each other over the network) from leaders and candidates. The moment a follower stops hearing from a leader, it assumes something is wrong and promotes itself.
 
-## Randomized timeouts: why elections don't deadlock
+## Randomized timeouts: how elections avoid deadlocking forever
 
-When a follower's election timeout elapses, it becomes a **candidate**: it increments its own term, votes for itself, and sends `RequestVote` RPCs to every other node in parallel. If it gets votes from a majority (including itself), it becomes leader for that term and starts sending heartbeats before anyone else's timeout fires.
+When a follower's timer runs out with no heartbeat from a leader, it turns into a **candidate**. It bumps its own term, votes for itself, and fires off `RequestVote` messages to everyone else at once. Get a majority of votes and it becomes leader, then starts sending heartbeats before anyone else's timer even expires.
 
-The obvious failure mode: if every follower uses the *same* timeout, then when a leader dies, all the followers time out at the same instant, all become candidates for the same new term simultaneously, and each votes for itself. Nobody gets a majority - a **split vote**. Now everyone's election timer restarts... with the same fixed duration, so they all time out again at the same instant and split the vote again. Forever.
+Here's the obvious way that breaks: if every follower uses the exact same timeout length, then when a leader dies, all of them time out at the same instant, all become candidates for the same term at the same instant, and all vote for themselves. Nobody gets a majority. That's called a **split vote**. Everyone's timer resets, and since it's the same fixed length again, they all time out together a second time and split the vote again. This can, in principle, go on forever.
 
-Raft's fix is almost embarrassingly simple: each node picks its election timeout **randomly** from a range, typically 150-300ms, re-rolled every time the timer resets. With randomized timeouts, one follower's timer almost always fires meaningfully before the others'. That node becomes a candidate first, sends `RequestVote` before anyone else even considers it, and usually collects a majority before a second candidate emerges. Split votes still happen occasionally (two nodes roll timeouts within a few milliseconds of each other), but the retry - with a fresh random timeout each time - converges quickly. This is the same tool as jittered retry backoff, which shows up again in [Timeouts, Retries, and Circuit Breakers in .NET](/posts/timeouts-retries-circuit-breakers-dotnet/): uncoordinated actors avoiding synchronized collisions by adding randomness.
+Raft's answer is almost too simple: each server picks its timeout at random from a range, usually somewhere around 150 to 300 milliseconds, and re-rolls it every time the timer resets. With that in place, one follower's timer will almost always go off meaningfully earlier than everyone else's. It becomes a candidate first, sends out its vote requests before any other server has even considered running, and usually locks up a majority before a second candidate has a chance to start. Split votes still happen sometimes, when two servers happen to roll timeouts within a few milliseconds of each other, but the retry (with a fresh random number each time) sorts itself out fast.
 
-Here is the vote-granting logic each node runs on receiving a `RequestVote` RPC - the safety check that keeps a lagging node from winning an election and then losing data:
+If this sounds familiar, it's the exact same idea as jittered retry delays, which I wrote about in [Timeouts, Retries, and Circuit Breakers in .NET](/posts/timeouts-retries-circuit-breakers-dotnet/): give uncoordinated actors some randomness and they stop colliding with each other.
+
+Here's the logic each server runs when it receives a `RequestVote` message - this is the safety check that stops a server that's behind on data from winning an election and then losing everyone's writes:
 
 ```csharp
 // Simplified RequestVote handler, run by every follower/candidate on receipt.
@@ -90,11 +120,11 @@ VoteResponse HandleRequestVote(RequestVoteArgs args)
 }
 ```
 
-That `logIsUpToDate` check is easy to skim past and is actually load-bearing: a node can only win an election if a majority of the cluster agrees its log is at least as current as their own. A node that was partitioned away for an hour and missed a hundred commits cannot become leader and steamroll them - it will lose every vote until it catches up.
+That `logIsUpToDate` check is easy to skim past, but it's doing real work. A server can only win an election if a majority of the cluster agrees its log is at least as current as its own. So a server that got cut off for an hour and missed a hundred commits can't come back and steamroll everyone by winning an election - it will lose every vote until it catches up on its own.
 
-## Log replication: commit means a majority wrote it down
+## Replicating the log: a write only counts once most nodes have it
 
-Leader election answers "who is in charge." Log replication is where the actual work happens. Once elected, a leader is the only node that accepts client writes. For each write:
+Leader election settles who's in charge. Replication is where the actual work happens - it's how one write on the leader ends up safely copied onto the rest of the cluster. Once a server is elected, it's the only one that accepts writes from clients. Here's what happens to one write, step by step:
 
 1. The leader appends the entry to its own log (tagged with the current term and the index it lands at) but does **not** apply it yet.
 2. The leader sends `AppendEntries` RPCs to every follower, carrying the new entry.
@@ -123,11 +153,11 @@ sequenceDiagram
     L->>F2: next AppendEntries carries commitIndex
 ```
 
-The majority rule is the load-bearing beam of the whole algorithm. It guarantees that any two majorities overlap by at least one node - in a 5-node cluster, any two sets of 3 share at least one member. That shared node is what makes it impossible for a future leader election to "forget" a committed entry: whoever wins the next election needed votes from a majority, and that majority necessarily includes at least one node that has the committed entry in its log, and the `logIsUpToDate` check from the vote handler above means the new leader cannot have a log that is missing it.
+The majority rule is really the whole algorithm. Any two majorities out of the same group have to overlap by at least one member - in a 5-node cluster, pick any two groups of 3 and they'll always share at least one node. That shared node is exactly why a later election can never "forget" something that was already committed. Whoever wins the next election needed votes from a majority, that majority necessarily includes someone who has the committed entry, and the `logIsUpToDate` rule from earlier means the new leader's log can't be missing it either.
 
-## Worked example: a 5-node cluster loses its leader mid-write
+## Watching a leader die mid-write
 
-Take a 5-node cluster - N1 through N5 - currently in term 4, with N1 as leader. State:
+Let's trace through an actual failure so this stops being abstract. Take a 5-node cluster, N1 through N5, currently in term 4, with N1 as leader. Here's where everyone stands:
 
 | Node | Role | Term | Last log index |
 |------|------|------|-----------------|
@@ -137,34 +167,46 @@ Take a 5-node cluster - N1 through N5 - currently in term 4, with N1 as leader. 
 | N4 | Follower | 4 | 99 (slightly behind) |
 | N5 | Follower | 4 | 99 |
 
-A client sends write #101. N1 appends it locally (log index 101, term 4) and fires `AppendEntries` to N2-N5. N1 crashes - hardware fault, OOM kill, doesn't matter - after the RPC reaches N2 and N2 acks, but before N3, N4, or N5 receive it.
+A client sends write #101. N1 appends it to its own log at index 101, term 4, and fires off `AppendEntries` to N2 through N5. Then N1 crashes - doesn't matter why, hardware fault or an out-of-memory kill - right after the message reaches N2 and N2 acknowledges it, but before N3, N4, or N5 ever see it.
 
-At this instant: N1 has entry 101 (crashed, irrelevant now), N2 has entry 101, and N3/N4/N5 do not. That entry was acknowledged by only 2 of 5 nodes (N1 and N2) - not a majority of 5 (which needs 3). **It was never committed.** The client is still waiting; it never got a success response.
+Freeze the clock right there. N1 has entry 101, but N1 is dead, so that copy doesn't matter anymore. N2 has entry 101. N3, N4, and N5 don't. Only 2 out of 5 nodes ever acknowledged it, and a majority of 5 needs 3. So this entry was never committed. The client is still sitting there waiting - it never got a success response, and it never will for this attempt.
 
-N3, N4, and N5 each independently notice no heartbeat is arriving and start their randomized election timers. Say N4's timer fires first (it happened to roll the shortest random timeout). N4 increments to term 5, votes for itself, and sends `RequestVote` to N1 (unreachable), N2, N3, N5. N2's log has entry 101 at index 101; N4's log stops at index 99. Under the `logIsUpToDate` rule, N2 must reject N4's vote request - N4's log is less complete. N4 fails to get a majority and its election times out.
+N3, N4, and N5 each notice the heartbeats have stopped and start their randomized timers. Say N4 happens to roll the shortest one and fires first. It bumps itself to term 5, votes for itself, and sends `RequestVote` to everyone else. But N4's log only goes up to index 99, and N2's log already has entry 101. Under the `logIsUpToDate` rule, N2 has to reject N4 - its log is less complete. N4 can't get a majority, and its election times out.
 
-Eventually N3 (log index 100, matching N2) times out, becomes a candidate for term 5, and requests votes. N2 and N5 grant it (N3's log is at least as up to date as theirs), giving N3 a majority (N2, N3, N5 = 3 of 5). N3 becomes leader of term 5. Entry 101 - the one only N1 and N2 ever saw - is simply gone. It never makes it into the new leader's log, and once N3 starts sending `AppendEntries`, N2 will find its own index-101 entry conflicts with what the new leader dictates and overwrite it to match N3's log.
+Eventually N3 times out too. Its log is at index 100, matching N2's before the crash, so N2 and N5 both grant it their vote. That's N2, N3, and N5 - three out of five, a majority. N3 becomes leader of term 5.
 
-This is the correct outcome, not data loss in the "we have a bug" sense. The write was never acknowledged to the client as durable, so nothing that was promised was broken. If N1 recovers later and rejoins as a follower, it will discover N3's term (5) is higher than its own (4), step down, and its log gets truncated back to index 100 to match the new leader - its lone copy of entry 101 is discarded because it never reached a majority.
+And entry 101, the one only N1 and N2 ever saw, is just gone. It never makes it into N3's log. Once N3 starts sending `AppendEntries`, N2 finds its own copy of entry 101 conflicts with what the new leader says should be there, and overwrites it to match.
 
-## Kafka's ISR is Raft's cousin, and KRaft is the real thing
+I want to be clear that this isn't data loss in the "something went wrong" sense. The write was never told it succeeded, so nothing that was promised to anyone got broken. If N1 comes back later and rejoins as a follower, it'll see N3's term 5 is higher than its own term 4, step down immediately, and get its log trimmed back to index 100 to match everyone else. Its lone copy of entry 101 gets thrown away, because it never reached enough nodes to count.
 
-If this majority-commit shape feels familiar, it should: it's the same idea behind Kafka's `acks=all` combined with `min.insync.replicas`, covered in depth in [Kafka for Engineers Who Know Databases](/posts/kafka-for-engineers-who-know-databases/) and from the producer's side in [Kafka Delivery Semantics in .NET](/posts/kafka-delivery-semantics-dotnet/). A Kafka partition's leader only tells the producer a write is durable once every replica in the [In-Sync Replica set (ISR)](/glossary/#isr) has it - conceptually a majority-style acknowledgement, though Kafka's ISR is a broker-managed, dynamically shrinking membership rather than Raft's fixed-majority-of-all-voters rule, which is why Kafka needs the extra `min.insync.replicas` guard rail to stop the ISR from degenerating to a single node. It is a purpose-built, weaker cousin of full consensus: good enough for "don't lose data," not designed to solve leader election among brokers.
+## Kafka already does something like this
 
-Leader election among *brokers themselves* - which broker is the controller, who owns which partition's leadership - used to be Kafka's actual gap: it delegated that job entirely to Apache ZooKeeper, a separate consensus service (running the Zab protocol, a close relative of Raft) that Kafka clusters had to deploy, operate, and scale independently. **KRaft** (Kafka Raft) is Kafka's replacement for that: as of Kafka 3.x/4.0, the brokers themselves run a real Raft implementation to elect a controller and agree on cluster metadata (topic configs, partition assignments, ACLs), with no external ZooKeeper ensemble at all. It's the same terms-plus-majority-log mechanism from this post, just replicating "the cluster's metadata" instead of "one partition's messages." Everything above - randomized election timeouts, `AppendEntries`-equivalent replication, majority commit - runs, with Kafka-specific naming, inside every modern Kafka cluster's controller quorum.
+If the majority-commit idea sounds familiar, that's because it is. Kafka's `acks=all` combined with `min.insync.replicas` is doing the same thing in spirit - covered in more depth in [Kafka for Engineers Who Know Databases](/posts/kafka-for-engineers-who-know-databases/) and from the producer's side in [Kafka Delivery Semantics in .NET](/posts/kafka-delivery-semantics-dotnet/). A Kafka partition's leader only tells the producer a write is durable once every replica in the ISR (the [In-Sync Replica set](/glossary/#isr), the group of replicas currently caught up enough to be trusted) has it too.
 
-The pattern repeats everywhere you look once you know the shape: etcd (a key-value store built directly on a Raft library) is what Kubernetes uses for all cluster state and leader election - every `kubectl get pods` is ultimately a read against a Raft-replicated log, and every "which controller-manager instance is active" decision is a Raft leader election. Cosmos DB's underlying replication protocol and CockroachDB's range replicas use Raft or Paxos-family algorithms for the identical reason: multiple copies of data across machines that can fail or partition, needing one agreed-upon order of writes.
+It's a looser cousin of Raft's rule, not the same thing. Kafka's ISR is managed by the broker and can shrink dynamically, unlike Raft's fixed rule of "a majority of all voters." That's exactly why Kafka needs the extra `min.insync.replicas` setting as a guard rail, so the ISR can't shrink all the way down to a single, fragile copy. It's purpose-built to answer "don't lose data," not to solve leader election among brokers.
 
-## Honest tradeoffs
+Leader election among the brokers themselves - who's the controller, who owns which partition - used to be a gap Kafka didn't solve on its own. It just handed that job to Apache ZooKeeper, a separate consensus service (running a Raft relative called Zab) that you had to deploy and operate as its own thing. **KRaft** is Kafka's fix for that. As of Kafka 3.x and 4.0, the brokers run an actual Raft implementation themselves to elect a controller and agree on metadata like topic configs and partition assignments, with no external ZooKeeper cluster at all. Same terms-plus-majority mechanism from this whole post, just applied to cluster metadata instead of one partition's messages.
 
-Consensus is not free, and pretending otherwise is how people get surprised in production:
+Once you know the shape, you see it everywhere. etcd, a key-value store built directly on a Raft library, is what Kubernetes uses for all of its cluster state - every `kubectl get pods` is a read against a Raft-replicated log under the hood. Cosmos DB and CockroachDB use Raft or a close relative for the same underlying reason: multiple copies of data on machines that can fail or get cut off from each other, needing one agreed order of writes.
 
-- **A minority partition is unavailable by design, not by accident.** In the 5-node example, if a partition splits the cluster 2-3, the 2-node side can never elect a leader (it can't reach a majority) and can never commit a write, even though both of its nodes are perfectly healthy and reachable by some clients. That is Raft protecting correctness at the cost of availability - the CAP theorem trade-off made concrete, not a defect to patch around.
-- **Every write pays a network round trip to a majority**, not just to the leader. Cross-region Raft clusters (say, nodes in three different Azure regions for disaster tolerance) pay real cross-region latency on every commit - tens of milliseconds, not microseconds. This is why etcd and similar systems are usually deployed within a single region or a small number of nearby ones, not spread globally for every write.
-- **Cluster size matters more than intuition suggests.** A 3-node cluster tolerates 1 failure (needs 2 of 3). A 5-node cluster tolerates 2 failures (needs 3 of 5) but pays for two more round trips per write and two more disks. Going from 3 to 5 nodes doesn't double your fault tolerance for double the cost - it adds exactly one more failure of headroom. Most production Raft-based systems (etcd, Kafka's KRaft controllers) default to 3 or 5 for exactly this reason; even numbers are actively worse, since a 4-node cluster still only tolerates 1 failure (needs 3 of 4) while paying for a fourth node.
-- **Leader changes cause a real, if brief, availability blip.** Between a leader failing and a new one being elected, the cluster cannot commit writes - bounded by the election timeout (hundreds of milliseconds, typically), but not zero. Systems layered on Raft (Kafka's producers, etcd clients) need retry logic that tolerates this window rather than treating it as a hard failure.
-- **This is a leader-based protocol, not a leaderless one.** Every write still funnels through one node. Raft solves *safe* leadership, not the throughput ceiling of having a single write path - that ceiling is why Kafka partitions the log at all, spreading leadership across many independent partitions instead of running one giant Raft group for an entire topic.
+## What this actually costs you
 
-## Putting it together
+Consensus isn't free, and it helps to know exactly where the cost shows up before it surprises you in production.
 
-The naive "pick a leader, trust the leader" scheme fails not because leaders are a bad idea, but because it has no mechanism for a leader to notice it has stopped being the leader - it can only be told by a message that a partition might delay indefinitely. Raft closes that hole with two cheap primitives: a term number that makes "who is more recent" a simple integer comparison instead of a clock-synchronization problem, and a majority-commit rule that makes "is this durable" require overlap with any future majority, so nothing committed can ever be un-committed by a later election. Randomized timeouts are the unglamorous detail that makes elections actually terminate instead of livelocking forever. None of this is exotic anymore - it is running quietly inside etcd every time Kubernetes schedules a pod, inside Kafka's controller quorum since KRaft replaced ZooKeeper, and inside every managed database that advertises "automatic failover with no data loss." The mental model is worth keeping permanently: a distributed system doesn't get correctness by avoiding failure, it gets correctness by defining precisely what a majority must agree to before anything is allowed to count as true.
+A minority partition goes unavailable on purpose. In the 5-node example, if a split leaves 2 nodes on one side and 3 on the other, the 2-node side can never elect a leader and can never commit a write, even though both of its nodes are perfectly healthy and clients can reach them. That's Raft choosing correctness over availability, deliberately.
+
+Every write pays a round trip to a majority, not just to the leader. If your cluster spans three Azure regions for disaster tolerance, every commit pays real cross-region latency - tens of milliseconds, not microseconds. That's why etcd and similar systems usually stay within one region or a few nearby ones rather than spreading globally.
+
+Cluster size matters in a way that isn't obvious at first. A 3-node cluster survives 1 failure (it needs 2 of 3 to keep going). A 5-node cluster survives 2 failures, but costs two more round trips per write and two more disks to do it. Going from 3 to 5 doesn't double your fault tolerance for double the cost - it buys you exactly one more failure of headroom. This is also why you almost never see an even-numbered cluster: a 4-node cluster still only survives 1 failure (it needs 3 of 4), so you're paying for a fourth node and getting nothing extra for it.
+
+A leader change causes a real, if short, gap in availability. Between the old leader dying and a new one getting elected, the cluster can't commit anything - bounded by the election timeout, so hundreds of milliseconds typically, but not zero. Anything built on top of Raft needs retry logic that can ride out that gap instead of treating it as a hard failure.
+
+And it's worth saying plainly: this is a leader-based protocol, not a leaderless one. Every write still funnels through one node. Raft makes leadership safe, but it doesn't remove the throughput ceiling of having a single write path - which is exactly why Kafka partitions a topic in the first place, spreading leadership across many independent partitions instead of running one giant Raft group for the whole thing.
+
+## Where that leaves us
+
+The naive "pick a leader and trust it" approach doesn't fail because leaders are a bad idea. It fails because there's no way for a leader to find out it's stopped being the leader - it can only learn that from a message, and a network partition can delay that message indefinitely.
+
+Raft closes the gap with two cheap tools. A term number turns "who's more current" into comparing two integers instead of synchronizing clocks across machines. A majority-commit rule makes "is this durable" mean "does it overlap with every possible future majority," which is exactly what guarantees nothing committed can ever be un-committed later. Randomized timeouts are the unglamorous detail that keeps elections from stalling out forever.
+
+None of this is exotic anymore, even if it sounds like it. It's quietly running inside etcd every time Kubernetes schedules a pod, inside Kafka's controller quorum since KRaft replaced ZooKeeper, and inside every managed database that advertises automatic failover with no data loss. The mental model worth keeping is this: a distributed system doesn't get correctness by avoiding failure. It gets correctness by being precise about what a majority has to agree to before anything is allowed to count as true.

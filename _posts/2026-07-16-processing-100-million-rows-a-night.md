@@ -123,7 +123,7 @@ async Task WriteAsync() {
 await Task.WhenAll(ReadAsync(), WriteAsync(), WriteAsync());
 ```
 
-The bounded capacity is the whole point: when writers lag, `WriteAsync` on the channel *awaits*, which pauses the reader, which slows the whole pipeline to the speed of its slowest stage **with only 8 chunks ever in flight**. Memory is flat and configurable. Throughput approaches the max of the slowest stage rather than the sum of all three - and now you can attack the slowest stage specifically (usually the write, hence the bulk machinery above). Two writer tasks against *different* target partitions parallelize cleanly; two against the same key ranges just deadlock politely - [partition the work](/posts/partitioning-strategies-that-follow-you-everywhere/) by the same key the target is organized by.
+That bounded capacity is what makes this work: when writers lag, `WriteAsync` on the channel *awaits*, which pauses the reader, which slows the whole pipeline down to the speed of its slowest stage, with only 8 chunks ever in flight. Memory is flat and configurable. Throughput approaches the max of the slowest stage rather than the sum of all three - and now you can attack the slowest stage specifically (usually the write, hence the bulk machinery above). Two writer tasks against *different* target partitions parallelize cleanly; two against the same key ranges just deadlock politely - [partition the work](/posts/partitioning-strategies-that-follow-you-everywhere/) by the same key the target is organized by.
 
 ```mermaid
 flowchart LR

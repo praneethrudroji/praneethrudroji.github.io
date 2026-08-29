@@ -9,9 +9,11 @@ mermaid: true
 
 ## The symptom: flat memory, spiky p99
 
-A team I worked with had an ASP.NET Core API that looked completely healthy by every dashboard that mattered. Working set memory sat flat around 1.2 GB for hours - no leak, no sawtooth climbing to an OOM kill. CPU averaged 30%. And yet p99 latency had a clean, repeating pattern: quiet for 3-4 seconds, then a spike to 300-400ms on requests that normally finished in 8ms. Not correlated with traffic bursts, not correlated with a specific endpoint. Just periodic, like a heartbeat.
+A team I worked with had an ASP.NET Core API that looked completely healthy on every dashboard that mattered. Working set memory sat flat around 1.2 GB for hours, no leak, no slow climb toward an out-of-memory kill. CPU averaged 30%.
 
-The instinct is to go looking for a lock, a slow downstream call, a connection pool exhaustion. All reasonable guesses, all wrong here. The actual cause was garbage collection - specifically, Gen2 collections triggered by allocation rate, not by any bug. The memory graph was flat precisely *because* the collector was doing its job every few seconds. A flat memory graph doesn't mean the GC is idle; it means the GC is working hard enough to keep the graph flat, and that work isn't free.
+And yet p99 latency had a clean, repeating pattern: quiet for 3 to 4 seconds, then a spike to 300-400ms on requests that normally finished in 8ms. It didn't correlate with traffic bursts, and it didn't correlate with any specific endpoint. It was just periodic, like a heartbeat.
+
+The instinct is to go looking for a lock, a slow downstream call, a connection pool running dry. All reasonable guesses, all wrong here. The actual cause was garbage collection, specifically Gen2 collections triggered by how fast the app was allocating memory, not by any bug. The memory graph looked flat precisely because the collector was doing its job every few seconds. A flat memory graph doesn't mean the garbage collector is idle. It means the collector is working hard enough to keep it flat, and that work isn't free.
 
 This post builds the mental model you need to recognize that pattern on sight, and the concrete code patterns that cause it.
 
@@ -50,7 +52,7 @@ flowchart TB
     style LOH fill:#9b59b6,color:#fff
 ```
 
-New objects (below the LOH threshold) always start in **Gen0**. When Gen0 fills up - it's small, typically a few hundred KB to a few MB depending on cache size and workload - the GC runs a Gen0 collection: it walks the *roots* (static fields, thread stacks, CPU registers - anything currently referencing an object) and traces which Gen0 objects are still reachable. Everything unreachable is garbage; its memory is reclaimed instantly because Gen0 objects are never finalized in place, just walked away from. Everything reachable is **promoted** to Gen1.
+New objects, below the size threshold I'll get to shortly, always start out in Gen0. When Gen0 fills up (it's small, typically a few hundred KB to a few MB depending on the workload) the collector runs a Gen0 collection. It walks the roots, meaning static fields, thread stacks, CPU registers, basically anything currently pointing at an object, and traces which Gen0 objects are still reachable from there. Everything unreachable is garbage, and its memory gets reclaimed instantly. Everything reachable gets promoted up to Gen1.
 
 This is the key performance property: a Gen0 collection only touches Gen0 objects plus the roots pointing into it. It does not walk Gen1, Gen2, or the LOH. Because most objects die in Gen0 (the generational hypothesis holds), a Gen0 collection usually finds almost nothing to promote and finishes in well under a millisecond. That's why Gen0 collections are cheap enough to happen dozens of times per second under load without anyone noticing.
 
@@ -58,7 +60,7 @@ Gen1 acts as a buffer between short-lived and truly long-lived data. Objects tha
 
 ## The Large Object Heap and Pinned Object Heap
 
-Objects at least 85,000 bytes go straight to the **Large Object Heap (LOH)** instead of Gen0 - a large `byte[]` buffer, a big `List<T>` after enough growth, a sizeable string. This threshold exists because copying a 10 MB object every time it survives a generation would be absurdly expensive; the LOH sidesteps that by never doing the young-generation copy dance in the first place.
+Objects of at least 85,000 bytes skip Gen0 entirely and go straight to something called the Large Object Heap, or LOH: think a large byte array, a big list after enough growth, or a sizeable string. This threshold exists because copying a 10 MB object every time it survives a generation would be absurdly expensive, so the LOH sidesteps that entirely by never doing the young-generation copy dance in the first place.
 
 Two consequences that matter in practice:
 
@@ -182,7 +184,7 @@ For general object pooling beyond raw arrays (e.g., reusable `StringBuilder`s or
 - **Avoid unnecessary boxing** by preferring generic collections (`List<T>`, `Dictionary<TKey,TValue>`) over their non-generic ancestors, and being deliberate about anywhere a value type crosses an `object`-typed boundary.
 - **Reuse the closure-heavy LINQ pattern only outside hot paths**, and hand-roll loops where profiling actually shows it matters - don't pre-optimize code that runs once per request against a 3-row list.
 
-"Just add more RAM" is the fix people reach for because it's a config change, not a code change - and it's the wrong tool here. More RAM lets Gen0/Gen1/Gen2 grow larger before they trigger, which can *reduce collection frequency*, but it doesn't reduce the amount of garbage your code produces per request, and a larger Gen2 heap makes each full collection's mark-and-sweep pass scan more objects, potentially making individual Gen2 pauses *longer* even as they become rarer. If your allocation rate is the problem, you're trading pause frequency for pause size - not eliminating the pause. The only real fix is allocating less.
+"Just add more RAM" is the fix people reach for first, because it's a config change rather than a code change, and it's the wrong tool here. More memory lets each generation grow larger before it triggers a collection, which can reduce how often collections happen, but it does nothing to reduce how much garbage your code produces per request. And a bigger Gen2 heap means each full collection's sweep has more objects to scan, so individual Gen2 pauses can actually get longer even as they get rarer. If allocation rate is the real problem, adding memory just trades pause frequency for pause size, it doesn't remove the pause. The only fix that actually works is allocating less in the first place.
 
 ## Where this leaves you
 

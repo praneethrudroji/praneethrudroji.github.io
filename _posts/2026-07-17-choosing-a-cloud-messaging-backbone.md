@@ -9,7 +9,7 @@ mermaid: true
 
 ## Ask the shape question first
 
-Teams agonize over Service Bus vs Kafka vs SQS as if it were one comparison. It is not - it is two decisions stacked, and the first one does 80% of the work: **is your workload a queue or a log?**
+Teams agonize over Service Bus versus Kafka versus SQS as if it were one comparison. It really isn't. It's two separate decisions stacked on top of each other, and the first one does 80% of the work: **is your workload a queue or a log?**
 
 - A **queue** workload: discrete jobs, each processed once by whichever worker grabs it, with per-message retry, dead-lettering, and completion. "Generate this invoice." "Send this email." The message's life ends when the work is done.
 - A **log** workload: a stream of facts, in order, that *multiple* independent consumers read at their own pace, possibly again ("replay"). Clickstreams, [CDC feeds](/posts/streaming-sql-server-cdc-into-kafka-debezium/), integration events feeding billing *and* analytics *and* search. The message's life is the retention window, regardless of who has read it.

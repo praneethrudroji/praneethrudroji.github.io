@@ -1,60 +1,57 @@
 ---
 layout: post
 title: Dynamic Programming - Unique Paths
-description: The Unique Paths problem solved step by step - recursion, memoization, and bottom-up dynamic programming, with the reasoning that takes you from brute force to O(m*n).
+description: The Unique Paths problem solved step by step - recursion, memoization, and bottom-up dynamic programming, with the reasoning that takes you from brute force to a fast, iterative solution.
 date: 2025-03-24 23:35 +0530
 categories: [algorithms, dynamic programming]
 tags: [Dynamic Programming, Algorithms, Recursion, Memoization]
 ---
 
-## Problem Statement
+## The problem
 
-There is a robot on an m x n grid. The robot is initially located at the top-left corner (i.e., grid[0][0]). The robot tries to move to the bottom-right corner (i.e., grid[m - 1][n - 1]). The robot can only move either down or right at any point in time.
+There's a robot sitting on an m by n grid, starting in the top-left corner. It's trying to reach the bottom-right corner, and at every step it can only move down or right, never up or left, never diagonally.
 
-Given the two integers m and n, return the number of possible unique paths that the robot can take to reach the bottom-right corner.
-
-The test cases are generated so that the answer will be less than or equal to 2 * 10^9.
+Given the grid's dimensions, m and n, how many different paths can the robot take to get from start to finish?
 
 ![DP Robot Grid](/assets/img/dp-unique-paths.png)
 
-## Thought Process
+## Working through it
 
-1. **Understanding the Problem:**
-   - The robot can only move to the RIGHT or DOWN.
-   - We need to find the number of unique paths from the top-left corner to the bottom-right corner.
+The robot only ever moves right or down, so every path is really just a sequence of R's and D's. The question is how many distinct sequences actually land on the bottom-right corner.
 
-2. **Base Cases:**
-   - If either m or n is 0, there are 0 ways to reach the bottom-right corner because a grid with 0 rows or 0 columns does not form a valid grid.
-   - If the grid is 1x1, there is exactly 1 way to reach the bottom-right corner.
+Start with the base cases, since those anchor everything else. If either dimension is 0, there's no valid grid at all, so there are 0 paths, full stop. If the grid is a single cell, 1x1, the robot is already standing on the destination, so there's exactly one path: do nothing.
 
-3. **Example Cases:**
-   - For a 2x2 grid:
-     ```
-     +---+---+
-     | S |   |
-     +---+---+
-     |   | E |
-     +---+---+
-     ```
-     - Move right, then down.
-     - Move down, then right.
-     - Total: 2 ways.
+A tiny example makes the pattern click faster than a formula would. Take a 2x2 grid:
 
-   - For a 3x2 grid:
-     ```
-     +---+---+
-     | S |   |
-     +---+---+
-     |   |   |
-     +---+---+
-     |   | E |
-     +---+---+
-     ```
-     - Move DOWN first, reducing the grid to a 2x2 grid (2 ways).
-     - Move RIGHT first, reducing the grid to a 3x1 grid (1 way).
-     - Total: 2 + 1 = 3 ways.
+```
++---+---+
+| S |   |
++---+---+
+|   | E |
++---+---+
+```
 
-## Top-Down (Recursive) Solution
+There are exactly two ways to get from S to E: right then down, or down then right. Two paths.
+
+Now bump it up to a 3x2 grid:
+
+```
++---+---+
+| S |   |
++---+---+
+|   |   |
++---+---+
+|   | E |
++---+---+
+```
+
+Here's the trick that makes this a dynamic programming problem rather than just a counting exercise: think about the robot's very first move. If it moves down first, it's left with a 2x2 grid to solve, which we already know has 2 paths. If it moves right first, it's left with a 3x1 grid, a single column, which only has 1 path (straight down). Add those together and you get 2 + 1 = 3 total paths.
+
+That's the whole idea in one sentence: the number of paths to any cell is the number of paths to the cell above it, plus the number of paths to the cell to its left. Everything below is just different ways of computing that.
+
+## First attempt: plain recursion
+
+The recursive formula falls straight out of the reasoning above. To reach cell (m, n), the robot had to arrive from either the cell above it, (m-1, n), or the cell to its left, (m, n-1). So the total paths to (m, n) is just the sum of the paths to those two cells.
 
 ```csharp
 public class Solution {
@@ -72,59 +69,17 @@ public class Solution {
 }
 ```
 
-### Explanation
+Trace it through for a 3x2 grid and you can watch the recursion unfold. The call `UniquePaths(3, 2)` splits into `UniquePaths(3, 1)` and `UniquePaths(2, 2)`. Each of those splits again: `UniquePaths(3, 1)` becomes `UniquePaths(3, 0)` and `UniquePaths(2, 1)`, while `UniquePaths(2, 2)` becomes `UniquePaths(2, 1)` and `UniquePaths(1, 2)`. Keep unwinding and you eventually hit the base cases: anything with a 0 returns 0, and `UniquePaths(1, 1)` returns 1.
 
-In the top-down approach, we use recursion to calculate the number of unique paths to the bottom-right corner of the grid. The idea is to break the problem into smaller subproblems:
+Working back up from there: `UniquePaths(2, 1) = 1 + 0 = 1`, `UniquePaths(3, 1) = 1 + 0 = 1`, `UniquePaths(1, 2) = 1 + 0 = 1`, `UniquePaths(2, 2) = 1 + 1 = 2`, and finally `UniquePaths(3, 2) = 1 + 2 = 3`. Same answer we got by hand above.
 
-1. **Recursive Formula:**
-   - To reach cell `(m, n)`, the robot must come from either the cell above it `(m-1, n)` or the cell to its left `(m, n-1)`.
-   - Therefore, the total number of unique paths to `(m, n)` is the sum of the unique paths to `(m-1, n)` and `(m, n-1)`.
-   - Formula: `UniquePaths(m, n) = UniquePaths(m-1, n) + UniquePaths(m, n-1)`.
+Notice something in that trace, though: `UniquePaths(2, 1)` got computed twice, once as a sub-call of `UniquePaths(3, 1)` and once as a sub-call of `UniquePaths(2, 2)`. That's not a coincidence, and it's about to become a real problem.
 
-2. **Base Cases:**
-   - If `m == 0` or `n == 0`, there are no valid paths because the grid is invalid.
-   - If `m == 1` and `n == 1`, there is exactly one path (the robot is already at the destination).
+This version works, but it's slow. Without anything remembering past results, the recursion explores every possible path independently, and the number of calls grows exponentially with the grid size, roughly doubling with every extra row or column you add. For a small grid that's fine. For a large one, it grinds to a halt, because the same subproblems get recomputed over and over.
 
-3. **Recursive Calls:**
-   - The function makes two recursive calls for each cell: one for the cell above and one for the cell to the left.
+## Fixing it with memoization
 
-4. **Result:**
-   - The result is the value returned by `UniquePaths(m, n)`.
-
-### Example Execution
-
-For a 3x2 grid:
-
-1. **Initial Call:**
-   - `UniquePaths(3, 2)`
-
-2. **First Level of Recursion:**
-   - The robot can move right to `UniquePaths(3, 1)` or down to `UniquePaths(2, 2)`.
-
-3. **Second Level of Recursion:**
-   - For `UniquePaths(3, 1)`, the robot can move right to `UniquePaths(3, 0)` or down to `UniquePaths(2, 1)`.
-   - For `UniquePaths(2, 2)`, the robot can move right to `UniquePaths(2, 1)` or down to `UniquePaths(1, 2)`.
-
-4. **Base Cases:**
-   - `UniquePaths(3, 0)` and `UniquePaths(0, 2)` return 0 because the grid is invalid.
-   - `UniquePaths(1, 1)` returns 1 because it is a 1x1 grid.
-
-5. **Combining Results:**
-   - `UniquePaths(2, 1) = UniquePaths(1, 1) + UniquePaths(2, 0) = 1 + 0 = 1`.
-   - `UniquePaths(3, 1) = UniquePaths(2, 1) + UniquePaths(3, 0) = 1 + 0 = 1`.
-   - `UniquePaths(1, 2) = UniquePaths(1, 1) + UniquePaths(0, 2) = 1 + 0 = 1`.
-   - `UniquePaths(2, 2) = UniquePaths(2, 1) + UniquePaths(1, 2) = 1 + 1 = 2`.
-   - `UniquePaths(3, 2) = UniquePaths(3, 1) + UniquePaths(2, 2) = 1 + 2 = 3`.
-
-### Time Complexity Without Memoization
-
-- **Time Complexity:** `O(2^(m + n))`  
-  Without memoization, the recursive solution explores all possible paths, leading to an exponential number of recursive calls. Each call splits into two further calls (right and down), resulting in `2^(m + n)` calls in the worst case.
-
-- **Space Complexity:** `O(m + n)`  
-  The recursion stack can grow up to `m + n` levels deep, corresponding to the maximum depth of the recursion tree.
-
-## Adding Memoization
+The fix is almost embarrassingly simple once you've spotted the repeated work above: cache the answer to each `(m, n)` pair the first time you compute it, and just look it up if you're ever asked for it again.
 
 ```csharp
 public class Solution {
@@ -148,7 +103,11 @@ public class Solution {
 }
 ```
 
-## Bottom-Up (Iterative) Solution
+This is the exact same recursion as before, with one line added: check the dictionary before doing any work, and write to it before returning. Now every distinct `(m, n)` pair only ever gets computed once, no matter how many times it shows up in the recursion tree. That turns the exponential blowup from before into something that scales cleanly with the size of the grid.
+
+## Going bottom-up instead
+
+Memoization fixes the performance problem, but you're still paying for recursion itself: a call stack, and the overhead of function calls going down before any answers come back up. The bottom-up version skips that entirely by building the answer from the smallest cases upward, using a plain table instead of recursive calls.
 
 ```csharp
 public class Solution {
@@ -171,69 +130,36 @@ public class Solution {
 }
 ```
 
-### Explanation
+Here, `dp[i, j]` just means "the number of paths to reach cell (i, j)." The first row and first column both get initialized to 1, because there's only one way to reach any cell along the top edge (keep moving right) or the left edge (keep moving down). After that, every other cell is just the sum of the cell above it and the cell to its left, exactly the same relationship as before, just computed forward instead of backward.
 
-In the bottom-up (iterative) approach, we use a 2D array `dp` to store the number of unique paths to each cell in the grid. The value of `dp[i, j]` represents the number of unique paths to reach cell `(i, j)`.
+Walk through a 3x2 grid to see it fill in. After initialization, the table looks like this:
 
-1. **Initialization:**
-   - The first row (`dp[0, j]`) and the first column (`dp[i, 0]`) are initialized to 1 because there is only one way to reach any cell in the first row (by moving right) or the first column (by moving down).
+```
+dp = [
+  [1, 1],
+  [1, 0],
+  [1, 0]
+]
+```
 
-2. **Filling the DP Table:**
-   - For each cell `(i, j)`, the number of unique paths is the sum of the unique paths from the cell above it (`dp[i - 1, j]`) and the cell to its left (`dp[i, j - 1]`).
-   - Formula: `dp[i, j] = dp[i - 1, j] + dp[i, j - 1]`.
+Fill in cell (1, 1): `dp[1,1] = dp[0,1] + dp[1,0] = 1 + 1 = 2`. Then cell (2, 1): `dp[2,1] = dp[1,1] + dp[2,0] = 2 + 1 = 3`. The finished table:
 
-3. **Result:**
-   - The value at the bottom-right corner of the grid (`dp[m - 1, n - 1]`) gives the total number of unique paths.
+```
+dp = [
+  [1, 1],
+  [1, 2],
+  [1, 3]
+]
+```
 
-### Example Execution
+The answer sits in the bottom-right corner, `dp[2, 1] = 3`, matching everything we've computed so far by hand and by recursion.
 
-For a 3x2 grid:
+## So which one should you actually use
 
-1. **Initialization:**
-   ```
-   dp = [
-     [1, 1],
-     [1, 0],
-     [1, 0]
-   ]
-   ```
+| Approach | Speed | Memory | Notes |
+| --- | --- | --- | --- |
+| Plain recursion | Exponential, gets slow fast | Small (just the call stack) | Fine for tiny grids, falls apart quickly as the grid grows |
+| Recursion with memoization | Scales with grid size | A dictionary plus the call stack | Same idea as bottom-up, but still pays for recursion overhead |
+| Bottom-up table | Scales with grid size | One table sized to the grid | No recursion at all, generally the fastest in practice |
 
-2. **Filling the DP Table:**
-   - For cell `(1, 1)`: `dp[1, 1] = dp[0, 1] + dp[1, 0] = 1 + 1 = 2`.
-   - For cell `(2, 1)`: `dp[2, 1] = dp[1, 1] + dp[2, 0] = 2 + 1 = 3`.
-
-   Final DP table:
-   ```
-   dp = [
-     [1, 1],
-     [1, 2],
-     [1, 3]
-   ]
-   ```
-
-3. **Result:**
-   - The value at `dp[2, 1]` is `3`, which is the total number of unique paths.
-
-### Time Complexity
-
-#### Top-Down (Recursive with Memoization):
-- **Time Complexity:** `O(m * n)` because each subproblem is solved only once and stored in the memoization table.
-- **Space Complexity:** `O(m * n)` for the memoization table, plus `O(m + n)` for the recursion stack.
-
-#### Top-Down (Recursive without Memoization):
-- **Time Complexity:** `O(2^(m + n))` due to the exponential growth of recursive calls.
-- **Space Complexity:** `O(m + n)` for the recursion stack.
-
-#### Bottom-Up (Iterative):
-- **Time Complexity:** `O(m * n)` because we iterate through all cells in the grid.
-- **Space Complexity:** `O(m * n)` for the DP table.
-
-### Comparison
-
-| Approach                       | Time Complexity | Space Complexity | Notes                                                                |
-| ------------------------------ | --------------- | ---------------- | -------------------------------------------------------------------- |
-| Top-Down (Without Memoization) | `O(2^(m + n))`  | `O(m + n)`       | Exponential growth due to redundant calculations.                    |
-| Top-Down (With Memoization)    | `O(m * n)`      | `O(m * n)`       | Requires recursion and memoization. May have additional stack usage. |
-| Bottom-Up                      | `O(m * n)`      | `O(m * n)`       | Iterative approach with no recursion overhead.                       |
-
-In summary, the top-down approach without memoization is highly inefficient compared to the other two approaches. Memoization or the bottom-up approach is recommended for optimal performance.
+The plain recursive version is the one to reach for only when you're first working out the logic by hand, since it maps directly onto the reasoning ("this path or that path"). The moment you'd actually run this on a real input, memoization or the bottom-up table are the two to pick between, and in practice I'd default to the bottom-up table: it does the exact same amount of work as the memoized version, without the overhead of a recursive call stack sitting underneath it.

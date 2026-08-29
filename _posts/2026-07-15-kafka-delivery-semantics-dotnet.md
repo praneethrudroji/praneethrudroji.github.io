@@ -138,7 +138,7 @@ That is a real and useful guarantee **when both ends of the operation are Kafka*
 So the staff-engineer summary:
 
 - **Kafka-to-Kafka pipeline?** Transactions give you exactly-once. Use them (or use Kafka Streams / a framework that wires them for you).
-- **Kafka-to-database?** The database is the transaction coordinator you already have. At-least-once delivery + idempotent consumer (the processed-messages table committing with the side effect) *is* exactly-once **processing**, which is the thing the business actually asked for. Exactly-once *delivery* to an arbitrary external system does not exist, in Kafka or anywhere else - it is the Two Generals problem wearing a vendor T-shirt.
+- **Kafka-to-database?** The database is the transaction coordinator you already have. At-least-once delivery + idempotent consumer (the processed-messages table committing with the side effect) *is* exactly-once **processing**, which is the thing the business actually asked for. Exactly-once *delivery* to an arbitrary external system simply doesn't exist, in Kafka or anywhere else. It's the Two Generals problem wearing a vendor T-shirt.
 - **Database-to-Kafka?** That is the dual-write problem, and the answer is the [outbox pattern](/posts/outbox-pattern-end-to-end/) or [CDC via Debezium](/posts/streaming-sql-server-cdc-into-kafka-debezium/), not producer heroics.
 
 ## The checklist

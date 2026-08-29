@@ -113,7 +113,7 @@ SET Status = CASE WHEN AttemptCount >= 8 THEN 2 ELSE 0 END,   -- park after max 
 WHERE OutboxId = @id;
 ```
 
-Crash-safety analysis - the whole point, so walk it: crash **before** claim → rows still Pending, next cycle gets them. Crash **after** claim, before publish → rows stuck at Status 3; a small reaper query resets Claimed rows older than a visibility timeout back to Pending (`WHERE Status = 3 AND ClaimedAtUtc < DATEADD(MINUTE, -5, ...)` - add a ClaimedAtUtc column for this). Crash **after publish, before marking dispatched** → the row returns to Pending and **publishes again**. That last case is irreducible - it's why the pattern is *at-least-once*, and why the consumer side matters.
+Let's walk through crash safety, since that's really what this pattern buys you: crash **before** claim → rows still Pending, next cycle gets them. Crash **after** claim, before publish → rows stuck at Status 3; a small reaper query resets Claimed rows older than a visibility timeout back to Pending (`WHERE Status = 3 AND ClaimedAtUtc < DATEADD(MINUTE, -5, ...)` - add a ClaimedAtUtc column for this). Crash **after publish, before marking dispatched** → the row returns to Pending and **publishes again**. That last case is irreducible - it's why the pattern is *at-least-once*, and why the consumer side matters.
 
 **Parked messages (Status 2) are your dead-letter queue** - alert on their count (a degraded health check reading `SELECT COUNT(*) FROM Outbox WHERE Status = 2` is honest observability), and build the small admin action to requeue them after fixing the cause.
 
