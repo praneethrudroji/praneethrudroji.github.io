@@ -2,7 +2,7 @@
 
 [![GitHub license](https://img.shields.io/github/license/praneethrudroji/praneethrudroji.github.io.svg?color=blue)][mit]
 
-Welcome to my personal blog! This site is built using the [**Chirpy**][chirpy] Jekyll theme and hosted on GitHub Pages. Here, I share my knowledge and experiences as a Senior Software Engineer at Inovalon, focusing on topics such as databases, performance optimization, and software engineering best practices.
+Welcome to my personal blog! This site is built using the [**Chirpy**][chirpy] Jekyll theme and hosted on GitHub Pages. Here, I share my knowledge and experiences as a Senior Software Engineer at Pearl (JustAnswer), focusing on topics such as databases, performance optimization, and software engineering best practices.
 
 ## Blog Posts
 
